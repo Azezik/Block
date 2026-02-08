@@ -26,7 +26,10 @@ const crateTemplate = document.getElementById('crateTemplate');
 let month = 1;
 let progress = 0;
 let blockSerial = 0;
-let blockAvailable = false;
+
+function getAvailableBlockCount() {
+  return availableBlocks.childElementCount;
+}
 
 function renderCrates() {
   crateGrid.innerHTML = '';
@@ -69,10 +72,8 @@ function renderCrates() {
 
       crate.filled += 1;
       block.remove();
-      blockAvailable = false;
       renderCrates();
       updateCashStatus();
-      resetCashCrateForNextMonth();
     });
 
     crateGrid.appendChild(node);
@@ -93,12 +94,14 @@ function spawnCashBlock() {
   });
 
   availableBlocks.appendChild(block);
-  blockAvailable = true;
   updateCashStatus();
 }
 
 function updateCashStatus() {
-  cashStatus.textContent = blockAvailable ? 'Crate Full - Place Cash Block' : 'Filling...';
+  const availableCount = getAvailableBlockCount();
+  cashStatus.textContent = availableCount > 0
+    ? `${availableCount} Cash Block${availableCount > 1 ? 's' : ''} Ready`
+    : 'Filling...';
 }
 
 function setProgress(percent) {
@@ -107,23 +110,15 @@ function setProgress(percent) {
   cashPercent.textContent = `${Math.round(progress)}%`;
 }
 
-function resetCashCrateForNextMonth() {
-  setProgress(0);
-}
-
 function tick() {
-  if (blockAvailable) {
-    return;
-  }
-
   const delta = (TICK_MS / MONTH_DURATION_MS) * 100;
   setProgress(progress + delta);
 
   if (progress >= 100) {
-    setProgress(100);
     spawnCashBlock();
     month += 1;
     monthIndicator.textContent = `Month ${month}`;
+    setProgress(0);
   }
 }
 
