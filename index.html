@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Block Stack Allocation Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <h1>Blocks + Crates + Stacks</h1>
+        <div class="month-pill" id="monthIndicator">Month 1</div>
+      </header>
+
+      <section class="cash-panel card">
+        <h2>Cash Crate</h2>
+        <div class="cash-layout">
+          <div class="cash-crate-shell" aria-label="Cash crate fill indicator">
+            <div class="cash-crate-fill" id="cashFill"></div>
+            <div class="cash-crate-percent" id="cashPercent">0%</div>
+          </div>
+
+          <div class="cash-info">
+            <p class="status" id="cashStatus">Filling...</p>
+            <p class="hint">1 month = 15 seconds</p>
+          </div>
+        </div>
+
+        <div class="available-blocks">
+          <h3>Available Blocks</h3>
+          <div id="availableBlocks" class="available-blocks-dropzone"></div>
+        </div>
+      </section>
+
+      <section class="board card">
+        <h2>Investment Crates</h2>
+        <div id="crateGrid" class="crate-grid"></div>
+      </section>
+    </main>
+
+    <template id="crateTemplate">
+      <article class="crate" draggable="false">
+        <header class="crate-header">
+          <span class="crate-label"></span>
+          <span class="crate-count"></span>
+        </header>
+        <div class="slots"></div>
+      </article>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
