@@ -1,6 +1,6 @@
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
-const STORAGE_KEY = 'block.custom.stacks.v4';
+const STORAGE_KEY = 'block.custom.stacks.v5';
 const LEGACY_STORAGE_KEY = 'block.custom.stacks.v3';
 const MONTHLY_BUDGET_OPTIONS = [100, 250, 500, 750, 1000];
 const DEFAULT_YEARLY_ACTION_UNITS = 12;
@@ -39,6 +39,9 @@ const nodes = {
   customStackWorkspace: document.getElementById('customStackWorkspace'),
   customCashTitle: document.getElementById('customCashTitle'),
   customBoardTitle: document.getElementById('customBoardTitle'),
+  customPlanRemaining: document.getElementById('customPlanRemaining'),
+  customExtraAvailable: document.getElementById('customExtraAvailable'),
+  customCashBalance: document.getElementById('customCashBalance'),
   stacksList: document.getElementById('stacksList'),
   createStackBtn: document.getElementById('createStackBtn'),
   editStackBtn: document.getElementById('editStackBtn'),
@@ -51,25 +54,38 @@ const nodes = {
   crateTemplate: document.getElementById('crateTemplate')
 };
 
-function updateCrateProgress(crate, blockValue) {
-  const actualDollar = Number(crate.actualDollar || 0);
-  crate.fullBlocks = Math.floor(actualDollar / blockValue);
-  crate.partialBlockProgress = (actualDollar % blockValue) / blockValue;
-  crate.overflowDollar = Math.max(0, actualDollar - Number(crate.targetDollar || 0));
+function getPlannedBlockTargets(crates, plannedBlocksPerYear) {
+  const raw = crates.map((crate) => plannedBlocksPerYear * (Number(crate.requestedPercent) / 100));
+  const base = raw.map((value) => Math.floor(value));
+  let remaining = plannedBlocksPerYear - base.reduce((sum, value) => sum + value, 0);
+  const ranked = raw
+    .map((value, idx) => ({ idx, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder || a.idx - b.idx);
+
+  for (let i = 0; i < ranked.length && remaining > 0; i += 1) {
+    base[ranked[i].idx] += 1;
+    remaining -= 1;
+  }
+  return base;
 }
 
 function calculateTargets(stack) {
   stack.blockValue = Number(stack.monthlyContribution);
-  stack.yearlyActionUnits = DEFAULT_YEARLY_ACTION_UNITS;
-  stack.annualGoal = stack.blockValue * stack.yearlyActionUnits;
-  stack.annualTotal = stack.annualGoal;
-  stack.periodsPerYear = stack.yearlyActionUnits;
+  stack.plannedBlocksPerYear = DEFAULT_YEARLY_ACTION_UNITS;
+  stack.annualPlanDollars = stack.blockValue * stack.plannedBlocksPerYear;
   stack.contributionPerPeriod = stack.monthlyContribution;
+  const plannedTargets = getPlannedBlockTargets(stack.crates, stack.plannedBlocksPerYear);
 
-  stack.crates.forEach((crate) => {
-    crate.targetDollar = stack.annualGoal * (crate.targetPercent / 100);
-    crate.targetBlocks = crate.targetDollar / stack.blockValue;
-    updateCrateProgress(crate, stack.blockValue);
+  stack.crates.forEach((crate, idx) => {
+    crate.plannedYearlyBlocksTarget = plannedTargets[idx];
+    crate.effectivePercent = (crate.plannedYearlyBlocksTarget / stack.plannedBlocksPerYear) * 100;
+    crate.plannedBlocksFilled = Number(crate.plannedBlocksFilled || 0);
+    crate.extraBlocksFilled = Number(crate.extraBlocksFilled || 0);
+    if (crate.plannedBlocksFilled > crate.plannedYearlyBlocksTarget) {
+      crate.extraBlocksFilled += crate.plannedBlocksFilled - crate.plannedYearlyBlocksTarget;
+      crate.plannedBlocksFilled = crate.plannedYearlyBlocksTarget;
+    }
+    crate.lifetimeBlocksAllocated = Number(crate.lifetimeBlocksAllocated || (crate.plannedBlocksFilled + crate.extraBlocksFilled));
   });
   return stack;
 }
@@ -108,7 +124,7 @@ const StackRules = {
     if (!draft.stackName || !draft.stackName.trim()) return 'Stack name is required.';
     if (!MONTHLY_BUDGET_OPTIONS.includes(Number(draft.monthlyContribution))) return 'Choose a monthly contribution option.';
     const named = draft.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
-    if (named.length < 2) return 'Add at least 2 investment names.';
+    if (named.length < 2 || named.length > 20) return 'Add between 2 and 20 investments.';
     const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
     if (Math.abs(totalPercent - 100) > 0.01) return 'Allocation percentages must total 100%.';
     return null;
@@ -122,9 +138,8 @@ const StackRules = {
       stackId: draft.stackId || crypto.randomUUID(),
       stackName: draft.stackName.trim(),
       monthlyContribution: Number(draft.monthlyContribution),
-      yearlyActionUnits: DEFAULT_YEARLY_ACTION_UNITS,
-      cashAccumulated: Number(draft.cashAccumulated || 0),
-      generatedBlocksAvailable: Number(draft.generatedBlocksAvailable || 0),
+      cashBalance: Number(draft.cashBalance || draft.cashAccumulated || 0),
+      availableBlocks: Number(draft.availableBlocks || draft.generatedBlocksAvailable || 0),
       monthCounter: Number(draft.monthCounter || 1),
       elapsedMsInYear: Number(draft.elapsedMsInYear || 0),
       elapsedMsInPeriod: Number(draft.elapsedMsInPeriod || 0),
@@ -132,8 +147,10 @@ const StackRules = {
         .map((item) => ({
           crateId: item.crateId || crypto.randomUUID(),
           name: item.name.trim(),
-          targetPercent: Number(item.targetPercent || 0),
-          actualDollar: Number(item.actualDollar || 0)
+          requestedPercent: Number(item.targetPercent ?? item.requestedPercent ?? 0),
+          plannedBlocksFilled: Number(item.plannedBlocksFilled || 0),
+          extraBlocksFilled: Number(item.extraBlocksFilled || 0),
+          lifetimeBlocksAllocated: Number(item.lifetimeBlocksAllocated || 0)
         }))
         .filter((item) => item.name)
     };
@@ -145,41 +162,46 @@ const StackRules = {
 
   assertStackModel(stack) {
     if (!stack.stackId || !Array.isArray(stack.crates)) throw new Error('Invalid stack.');
-    const totalPercent = stack.crates.reduce((sum, crate) => sum + Number(crate.targetPercent || 0), 0);
+    const totalPercent = stack.crates.reduce((sum, crate) => sum + Number(crate.requestedPercent || 0), 0);
     if (Math.abs(totalPercent - 100) > 0.1) throw new Error('Crate percentages must total 100%.');
   },
 
   normalizeLoadedStack(rawStack) {
-    if (Array.isArray(rawStack.crates) && rawStack.crates.every((crate) => typeof crate.targetPercent === 'number')) {
+    const monthly = MONTHLY_BUDGET_OPTIONS.includes(Number(rawStack.monthlyContribution)) ? Number(rawStack.monthlyContribution) : 100;
+    if (Array.isArray(rawStack.crates) && rawStack.crates.length) {
       const stack = {
         stackId: rawStack.stackId || crypto.randomUUID(),
         stackName: rawStack.stackName || 'Imported Stack',
-        monthlyContribution: Number(rawStack.monthlyContribution || 100),
-        cashAccumulated: Number(rawStack.cashAccumulated || 0),
-        generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
+        monthlyContribution: monthly,
+        cashBalance: Number(rawStack.cashBalance || rawStack.cashAccumulated || 0),
+        availableBlocks: Number(rawStack.availableBlocks || rawStack.generatedBlocksAvailable || 0),
         monthCounter: Number(rawStack.monthCounter || 1),
         elapsedMsInYear: Number(rawStack.elapsedMsInYear || 0),
         elapsedMsInPeriod: Number(rawStack.elapsedMsInPeriod || 0),
-        crates: rawStack.crates.map((crate) => ({
-          crateId: crate.crateId || crypto.randomUUID(),
-          name: crate.name,
-          targetPercent: Number(crate.targetPercent || 0),
-          actualDollar: Number(crate.actualDollar || 0)
-        }))
+        crates: rawStack.crates.map((crate) => {
+          const legacyActualBlocks = Number(crate.actualDollar || 0) / monthly;
+          return {
+            crateId: crate.crateId || crypto.randomUUID(),
+            name: crate.name || 'Investment',
+            requestedPercent: Number(crate.requestedPercent ?? crate.targetPercent ?? 0),
+            plannedBlocksFilled: Number(crate.plannedBlocksFilled || Math.floor(legacyActualBlocks)),
+            extraBlocksFilled: Number(crate.extraBlocksFilled || 0),
+            lifetimeBlocksAllocated: Number(crate.lifetimeBlocksAllocated || Math.floor(legacyActualBlocks))
+          };
+        })
       };
       return calculateTargets(stack);
     }
 
-    const monthly = MONTHLY_BUDGET_OPTIONS.includes(Number(rawStack.monthlyContribution)) ? Number(rawStack.monthlyContribution) : 100;
     const legacyCrates = (rawStack.crates || []).map((crate) => ({ name: crate.name || 'Investment', blocksFilled: Number(crate.blocksFilled || 0) }));
     const count = Math.max(2, legacyCrates.length || 2);
     const equal = 100 / count;
-    const draft = {
+    return StackRules.normalizeStackDraft({
       stackId: rawStack.stackId || rawStack.id || crypto.randomUUID(),
       stackName: rawStack.stackName || 'Imported Stack',
       monthlyContribution: monthly,
-      cashAccumulated: Number(rawStack.cashAccumulated || 0),
-      generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
+      cashBalance: Number(rawStack.cashAccumulated || 0),
+      availableBlocks: Number(rawStack.generatedBlocksAvailable || 0),
       monthCounter: Number(rawStack.monthCounter || 1),
       elapsedMsInYear: Number(rawStack.elapsedMsInYear || 0),
       elapsedMsInPeriod: Number(rawStack.elapsedMsInPeriod || 0),
@@ -188,11 +210,12 @@ const StackRules = {
         return {
           name: legacy.name,
           targetPercent: idx === count - 1 ? 100 - equal * (count - 1) : equal,
-          actualDollar: legacy.blocksFilled * monthly
+          plannedBlocksFilled: legacy.blocksFilled,
+          extraBlocksFilled: 0,
+          lifetimeBlocksAllocated: legacy.blocksFilled
         };
       })
-    };
-    return StackRules.normalizeStackDraft(draft);
+    });
   }
 };
 
@@ -228,24 +251,43 @@ const StackEngine = {
     }
 
     while (stack.elapsedMsInPeriod >= MONTH_DURATION_MS) {
-      stack.cashAccumulated += stack.contributionPerPeriod;
+      stack.cashBalance += stack.contributionPerPeriod;
       stack.elapsedMsInPeriod -= MONTH_DURATION_MS;
     }
 
-    while (stack.cashAccumulated >= stack.blockValue) {
-      stack.generatedBlocksAvailable += 1;
-      stack.cashAccumulated -= stack.blockValue;
+    while (stack.cashBalance >= stack.blockValue) {
+      stack.availableBlocks += 1;
+      stack.cashBalance -= stack.blockValue;
     }
   },
 
+  assignBlock(crate) {
+    if (crate.plannedBlocksFilled < crate.plannedYearlyBlocksTarget) crate.plannedBlocksFilled += 1;
+    else crate.extraBlocksFilled += 1;
+    crate.lifetimeBlocksAllocated += 1;
+  },
+
+  removeBlock(crate) {
+    if (crate.extraBlocksFilled > 0) {
+      crate.extraBlocksFilled -= 1;
+      crate.lifetimeBlocksAllocated = Math.max(0, crate.lifetimeBlocksAllocated - 1);
+      return true;
+    }
+    if (crate.plannedBlocksFilled > 0) {
+      crate.plannedBlocksFilled -= 1;
+      crate.lifetimeBlocksAllocated = Math.max(0, crate.lifetimeBlocksAllocated - 1);
+      return true;
+    }
+    return false;
+  },
+
   allocateBlockToCrate(stack, crateId) {
-    if (stack.generatedBlocksAvailable <= 0) return;
+    if (stack.availableBlocks <= 0) return;
     const crate = stack.crates.find((entry) => entry.crateId === crateId);
     if (!crate) return;
 
-    crate.actualDollar += stack.blockValue;
-    updateCrateProgress(crate, stack.blockValue);
-    stack.generatedBlocksAvailable -= 1;
+    StackEngine.assignBlock(crate);
+    stack.availableBlocks -= 1;
     StackStorage.saveStack(stack);
   },
 
@@ -253,11 +295,10 @@ const StackEngine = {
     if (fromCrateId === toCrateId) return;
     const from = stack.crates.find((item) => item.crateId === fromCrateId);
     const to = stack.crates.find((item) => item.crateId === toCrateId);
-    if (!from || !to || from.fullBlocks <= 0) return;
-    from.actualDollar -= stack.blockValue;
-    to.actualDollar += stack.blockValue;
-    updateCrateProgress(from, stack.blockValue);
-    updateCrateProgress(to, stack.blockValue);
+    if (!from || !to) return;
+    const moved = StackEngine.removeBlock(from);
+    if (!moved) return;
+    StackEngine.assignBlock(to);
     StackStorage.saveStack(stack);
   }
 };
@@ -303,14 +344,14 @@ function updateDemoTime(runtime) {
 
 function getStackCashProgressPercent(stack) {
   const elapsedRatio = Math.min(1, Math.max(0, stack.elapsedMsInPeriod / MONTH_DURATION_MS));
-  const projectedCash = stack.cashAccumulated + (stack.contributionPerPeriod * elapsedRatio);
+  const projectedCash = stack.cashBalance + (stack.contributionPerPeriod * elapsedRatio);
   return Math.min(100, Math.max(0, (projectedCash / stack.blockValue) * 100));
 }
 
 const Renderer = {
   renderUnallocatedBlocks(stack) {
     nodes.customAvailableBlocks.innerHTML = '';
-    for (let i = 0; i < stack.generatedBlocksAvailable; i += 1) {
+    for (let i = 0; i < stack.availableBlocks; i += 1) {
       const block = document.createElement('div');
       block.className = 'block';
       block.draggable = true;
@@ -327,36 +368,34 @@ const Renderer = {
     crates.forEach((crate) => {
       const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
       node.querySelector('.crate-label').textContent = crate.name;
-
-      const status = crate.actualDollar > crate.targetDollar ? 'Over' : crate.actualDollar < crate.targetDollar ? 'Under' : 'At';
-      node.querySelector('.crate-count').textContent = `${status} · ${crate.targetPercent.toFixed(1)}%`;
+      node.querySelector('.crate-count').textContent = `${crate.plannedBlocksFilled}/${crate.plannedYearlyBlocksTarget} planned`;
 
       const slots = node.querySelector('.slots');
       slots.classList.add('stack-layers');
-      const renderedBlocks = Math.max(1, Math.ceil(Math.max(crate.targetBlocks, crate.actualDollar / stack.blockValue)));
+      const totalFilled = crate.plannedBlocksFilled + crate.extraBlocksFilled;
+      const renderedBlocks = Math.max(1, crate.plannedYearlyBlocksTarget + crate.extraBlocksFilled);
 
       for (let i = 0; i < renderedBlocks; i += 1) {
         const cell = document.createElement('div');
         cell.className = 'slot layer-slot';
-        const targetFill = Math.min(1, Math.max(0, crate.targetBlocks - i));
-        const actualFill = Math.min(1, Math.max(0, (crate.actualDollar / stack.blockValue) - i));
-        const greenFill = Math.min(actualFill, targetFill || 1);
-        const overflowFill = Math.max(0, actualFill - targetFill);
 
         const ghost = document.createElement('div');
         ghost.className = 'slot-fill ghost-fill';
-        ghost.style.height = `${targetFill * 100}%`;
+        ghost.style.height = `${i < crate.plannedYearlyBlocksTarget ? 100 : 0}%`;
+
         const actual = document.createElement('div');
         actual.className = 'slot-fill actual-fill';
-        actual.style.height = `${(overflowFill > 0 ? actualFill - overflowFill : actualFill) * 100}%`;
+        actual.style.height = `${i < crate.plannedBlocksFilled ? 100 : 0}%`;
+
         const overflow = document.createElement('div');
         overflow.className = 'slot-fill overflow-fill';
-        overflow.style.height = `${overflowFill * 100}%`;
+        overflow.style.height = `${i >= crate.plannedYearlyBlocksTarget && i < totalFilled ? 100 : 0}%`;
 
-        if (i < crate.fullBlocks) {
-          actual.classList.add('full-block');
-          actual.draggable = true;
-          actual.addEventListener('dragstart', (event) => {
+        if (i < totalFilled) {
+          const dragLayer = i < crate.plannedBlocksFilled ? actual : overflow;
+          dragLayer.classList.add('full-block');
+          dragLayer.draggable = true;
+          dragLayer.addEventListener('dragstart', (event) => {
             event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'full-block', fromCrateId: crate.crateId }));
           });
         }
@@ -367,8 +406,15 @@ const Renderer = {
 
       const summary = document.createElement('p');
       summary.className = 'crate-meta';
-      summary.textContent = `Target $${crate.targetDollar.toFixed(0)} · Actual $${crate.actualDollar.toFixed(0)} · Overflow $${crate.overflowDollar.toFixed(0)}`;
+      summary.textContent = `Requested ${crate.requestedPercent.toFixed(1)}% · Plan ${crate.plannedYearlyBlocksTarget} blocks (${crate.effectivePercent.toFixed(0)}%)`;
       node.appendChild(summary);
+
+      if (crate.plannedBlocksFilled >= crate.plannedYearlyBlocksTarget) {
+        const badge = document.createElement('p');
+        badge.className = 'crate-meta';
+        badge.textContent = crate.extraBlocksFilled > 0 ? `Plan complete · +${crate.extraBlocksFilled} extra blocks` : 'Plan complete';
+        node.appendChild(badge);
+      }
 
       node.addEventListener('dragover', (event) => {
         event.preventDefault();
@@ -390,12 +436,16 @@ const Renderer = {
 
   renderStackView(stack) {
     const progress = getStackCashProgressPercent(stack);
+    const plannedRemaining = stack.crates.reduce((sum, crate) => sum + Math.max(0, crate.plannedYearlyBlocksTarget - crate.plannedBlocksFilled), 0);
     nodes.customMonthIndicator.textContent = `Month ${stack.monthCounter}`;
     nodes.customCashFill.style.width = `${progress}%`;
     nodes.customCashPercent.textContent = `${Math.round(progress)}%`;
-    nodes.customCashStatus.textContent = stack.generatedBlocksAvailable > 0
-      ? `${stack.generatedBlocksAvailable} Cash Block${stack.generatedBlocksAvailable > 1 ? 's' : ''} Ready`
-      : `Accumulating cash: $${stack.cashAccumulated.toFixed(2)}`;
+    nodes.customCashStatus.textContent = stack.availableBlocks > 0
+      ? `${stack.availableBlocks} Block${stack.availableBlocks > 1 ? 's' : ''} Ready`
+      : `Cash balance: $${stack.cashBalance.toFixed(2)}`;
+    nodes.customPlanRemaining.textContent = `${plannedRemaining}`;
+    nodes.customExtraAvailable.textContent = `${stack.availableBlocks}`;
+    nodes.customCashBalance.textContent = `$${stack.cashBalance.toFixed(2)}`;
 
     Renderer.renderUnallocatedBlocks(stack);
     Renderer.renderCrates(stack.crates, stack);
@@ -417,7 +467,7 @@ const Renderer = {
       const card = document.createElement('button');
       card.type = 'button';
       card.className = `stack-card ${stack.stackId === state.selectedCustomStackId ? 'selected' : ''}`;
-      card.innerHTML = `<strong>${stack.stackName}</strong><span>Monthly: $${stack.monthlyContribution}</span><span>Annual Goal: $${stack.annualGoal}</span><span>Crates: ${stack.crates.length}</span>`;
+      card.innerHTML = `<strong>${stack.stackName}</strong><span>Block Value: $${stack.blockValue}</span><span>Annual Plan: $${stack.annualPlanDollars}</span><span>Crates: ${stack.crates.length}</span>`;
       card.addEventListener('click', () => { state.selectedCustomStackId = stack.stackId; render(); });
       nodes.stacksList.appendChild(card);
     });
@@ -482,7 +532,7 @@ const SurveyUI = {
       values: {
         stackName: stack.stackName,
         monthlyContribution: stack.monthlyContribution,
-        investments: stack.crates.map((crate) => ({ name: crate.name, crateId: crate.crateId, targetPercent: crate.targetPercent, actualDollar: crate.actualDollar }))
+        investments: stack.crates.map((crate) => ({ name: crate.name, crateId: crate.crateId, targetPercent: crate.requestedPercent, plannedBlocksFilled: crate.plannedBlocksFilled, extraBlocksFilled: crate.extraBlocksFilled, lifetimeBlocksAllocated: crate.lifetimeBlocksAllocated }))
       }
     };
     SurveyUI.renderSurvey();
@@ -504,36 +554,45 @@ const SurveyUI = {
     if (state.survey.step === 2) {
       const presets = MONTHLY_BUDGET_OPTIONS.map((amount) => `<button class="preset ${values.monthlyContribution === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`).join('');
       const perYear = values.monthlyContribution ? values.monthlyContribution * DEFAULT_YEARLY_ACTION_UNITS : 0;
-      nodes.surveyQuestion.textContent = 'How much can you afford to invest every month?';
-      nodes.surveyContent.innerHTML = `<div class="preset-wrap">${presets}</div><p class="survey-note">This results in $${perYear.toLocaleString()} invested per year.</p>`;
+      nodes.surveyQuestion.textContent = 'How much can you invest per month?';
+      nodes.surveyContent.innerHTML = `<div class="preset-wrap">${presets}</div><p class="survey-note">12 planned blocks/year · Annual plan: $${perYear.toLocaleString()}</p>`;
       nodes.surveyContent.querySelectorAll('.preset').forEach((btn) => btn.addEventListener('click', () => { values.monthlyContribution = Number(btn.dataset.amount); SurveyUI.renderSurvey(); }));
       return;
     }
 
     if (state.survey.step === 3) {
-      nodes.surveyQuestion.textContent = 'Add your investments (minimum 2).';
-      nodes.surveyContent.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" value="${row.name}"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button">Add Investment</button>`;
+      nodes.surveyQuestion.textContent = 'Add your investments and target % (2-20).';
+      nodes.surveyContent.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${Number(row.targetPercent || 0).toFixed(1)}"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
       nodes.surveyContent.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
         values.investments[Number(event.target.dataset.index)].name = event.target.value;
       }));
-      document.getElementById('addInvestment').addEventListener('click', () => {
-        const n = values.investments.length + 1;
-        values.investments.push({ name: '', targetPercent: 100 / n });
-        values.investments.forEach((item) => { item.targetPercent = 100 / n; });
+      nodes.surveyContent.querySelectorAll('.inv-pct').forEach((input) => input.addEventListener('input', (event) => {
+        const idx = Number(event.target.dataset.index);
+        normalizePercentDraft(values.investments, idx, Number(event.target.value));
         SurveyUI.renderSurvey();
-      });
+      }));
+      const addBtn = document.getElementById('addInvestment');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          if (values.investments.length >= 20) return;
+          const n = values.investments.length + 1;
+          values.investments.push({ name: '', targetPercent: 100 / n });
+          values.investments.forEach((item) => { item.targetPercent = 100 / n; });
+          SurveyUI.renderSurvey();
+        });
+      }
       return;
     }
 
-    const trimmed = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
-    nodes.surveyQuestion.textContent = 'Set target allocation percentages (must total 100%).';
-    nodes.surveyContent.innerHTML = `<div>${trimmed.map((item, idx) => `<div class="investment-row"><label>${item.name}</label><input class="field alloc" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${item.targetPercent.toFixed(1)}"></div>`).join('')}</div><p class="survey-note">Total: ${trimmed.reduce((s, item) => s + item.targetPercent, 0).toFixed(1)}%</p>`;
-    nodes.surveyContent.querySelectorAll('.alloc').forEach((input) => input.addEventListener('input', (event) => {
-      const idx = Number(event.target.dataset.index);
-      normalizePercentDraft(trimmed, idx, Number(event.target.value));
-      values.investments = trimmed;
-      SurveyUI.renderSurvey();
-    }));
+    const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+    const tempStack = StackRules.normalizeStackDraft({
+      stackName: values.stackName,
+      monthlyContribution: values.monthlyContribution,
+      investments: named
+    });
+
+    nodes.surveyQuestion.textContent = 'Confirm plan summary';
+    nodes.surveyContent.innerHTML = `<p class="survey-note">12 planned blocks/year</p><p class="survey-note">Block value: $${tempStack.blockValue.toLocaleString()}</p><p class="survey-note">Annual plan: $${tempStack.annualPlanDollars.toLocaleString()}</p><div>${tempStack.crates.map((crate) => `<p class="survey-note"><strong>${crate.name}</strong> · Requested ${crate.requestedPercent.toFixed(1)}% → Plan ${crate.plannedYearlyBlocksTarget} blocks (${crate.effectivePercent.toFixed(0)}%)</p>`).join('')}</div>`;
   },
 
   validateAndAdvanceSurvey() {
@@ -556,9 +615,10 @@ const SurveyUI = {
 
     if (state.survey.step === 3) {
       const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
-      if (named.length < 2) return void (nodes.surveyError.textContent = 'Add at least 2 investment names.');
-      const equal = 100 / named.length;
-      values.investments = named.map((item, idx) => ({ ...item, targetPercent: idx === named.length - 1 ? 100 - equal * (named.length - 1) : equal }));
+      if (named.length < 2 || named.length > 20) return void (nodes.surveyError.textContent = 'Add between 2 and 20 investment names.');
+      const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
+      if (Math.abs(totalPercent - 100) > 0.01) return void (nodes.surveyError.textContent = 'Allocation percentages must total 100%.');
+      values.investments = named;
       state.survey.step += 1;
       return SurveyUI.renderSurvey();
     }
@@ -576,8 +636,8 @@ const SurveyUI = {
     const built = StackRules.normalizeStackDraft(draft);
     if (state.survey.mode === 'edit') {
       const existing = getSelectedCustomRuntime();
-      built.cashAccumulated = existing ? existing.cashAccumulated : 0;
-      built.generatedBlocksAvailable = existing ? existing.generatedBlocksAvailable : 0;
+      built.cashBalance = existing ? existing.cashBalance : 0;
+      built.availableBlocks = existing ? existing.availableBlocks : 0;
       built.monthCounter = existing ? existing.monthCounter : 1;
       built.elapsedMsInYear = existing ? existing.elapsedMsInYear : 0;
       built.elapsedMsInPeriod = existing ? existing.elapsedMsInPeriod : 0;
@@ -585,8 +645,10 @@ const SurveyUI = {
       const existingById = new Map((existing ? existing.crates : []).map((crate) => [crate.crateId, crate]));
       built.crates.forEach((crate) => {
         const old = existingById.get(crate.crateId);
-        if (old) crate.actualDollar = old.actualDollar;
-        updateCrateProgress(crate, built.blockValue);
+        if (!old) return;
+        crate.plannedBlocksFilled = Math.min(old.plannedBlocksFilled, crate.plannedYearlyBlocksTarget);
+        crate.extraBlocksFilled = old.extraBlocksFilled + Math.max(0, old.plannedBlocksFilled - crate.plannedYearlyBlocksTarget);
+        crate.lifetimeBlocksAllocated = old.lifetimeBlocksAllocated;
       });
 
       const idx = state.customRuntimes.findIndex((stack) => stack.stackId === built.stackId);
@@ -619,7 +681,7 @@ function render() {
   const selected = getSelectedCustomRuntime();
   if (!selected) return nodes.customStackWorkspace.classList.add('hidden');
   nodes.customStackWorkspace.classList.remove('hidden');
-  nodes.customCashTitle.textContent = `${selected.stackName} Cash Crate`;
+  nodes.customCashTitle.textContent = `${selected.stackName} Overflow Cash`;
   nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
   Renderer.renderStackView(selected);
 }
