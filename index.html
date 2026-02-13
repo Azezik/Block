@@ -10,34 +10,95 @@
     <main class="app">
       <header class="topbar">
         <h1>Blocks + Crates + Stacks</h1>
-        <div class="month-pill" id="monthIndicator">Month 1</div>
+        <div class="tabs" role="tablist" aria-label="App sections">
+          <button class="tab is-active" id="tabDemo" type="button">DEMO</button>
+          <button class="tab" id="tabMyStacks" type="button">MY STACKS</button>
+        </div>
       </header>
 
-      <section class="cash-panel card">
-        <h2>Cash Crate</h2>
-        <div class="cash-layout">
-          <div class="cash-crate-shell" aria-label="Cash crate fill indicator">
-            <div class="cash-crate-fill" id="cashFill"></div>
-            <div class="cash-crate-percent" id="cashPercent">0%</div>
+      <section id="demoView" class="view">
+        <div class="month-pill" id="monthIndicator">Month 1</div>
+        <section class="cash-panel card">
+          <h2>Cash Crate</h2>
+          <div class="cash-layout">
+            <div class="cash-crate-shell" aria-label="Cash crate fill indicator">
+              <div class="cash-crate-fill" id="cashFill"></div>
+              <div class="cash-crate-percent" id="cashPercent">0%</div>
+            </div>
+
+            <div class="cash-info">
+              <p class="status" id="cashStatus">Filling...</p>
+              <p class="hint">1 month = 15 seconds</p>
+            </div>
           </div>
 
-          <div class="cash-info">
-            <p class="status" id="cashStatus">Filling...</p>
-            <p class="hint">1 month = 15 seconds</p>
+          <div class="available-blocks">
+            <h3>Available Blocks</h3>
+            <div id="availableBlocks" class="available-blocks-dropzone"></div>
           </div>
-        </div>
+        </section>
 
-        <div class="available-blocks">
-          <h3>Available Blocks</h3>
-          <div id="availableBlocks" class="available-blocks-dropzone"></div>
-        </div>
+        <section class="board card">
+          <h2>Investment Crates</h2>
+          <div id="crateGrid" class="crate-grid"></div>
+        </section>
       </section>
 
-      <section class="board card">
-        <h2>Investment Crates</h2>
-        <div id="crateGrid" class="crate-grid"></div>
+      <section id="myStacksView" class="view hidden">
+        <div class="stacks-layout">
+          <section class="card stacks-list-panel">
+            <div class="stacks-list-header">
+              <h2>My Stacks</h2>
+              <button id="createStackBtn" class="btn" type="button">Create New Stack</button>
+            </div>
+            <div id="stacksList"></div>
+          </section>
+
+          <section id="customStackWorkspace" class="hidden">
+            <div class="month-pill" id="customMonthIndicator">Month 1</div>
+            <section class="cash-panel card">
+              <h2 id="customCashTitle">Cash Crate</h2>
+              <div class="cash-layout">
+                <div class="cash-crate-shell" aria-label="Cash crate fill indicator">
+                  <div class="cash-crate-fill" id="customCashFill"></div>
+                  <div class="cash-crate-percent" id="customCashPercent">0%</div>
+                </div>
+
+                <div class="cash-info">
+                  <p class="status" id="customCashStatus">Filling...</p>
+                  <p class="hint">1 month = 15 seconds</p>
+                </div>
+              </div>
+
+              <div class="available-blocks">
+                <h3>Available Blocks</h3>
+                <div id="customAvailableBlocks" class="available-blocks-dropzone"></div>
+              </div>
+            </section>
+
+            <section class="board card">
+              <div class="stacks-list-header">
+                <h2 id="customBoardTitle">Investment Crates</h2>
+                <button id="editStackBtn" class="btn" type="button">Edit Stack</button>
+              </div>
+              <div id="customCrateGrid" class="crate-grid"></div>
+            </section>
+          </section>
+        </div>
       </section>
     </main>
+
+    <section id="surveyModal" class="survey-backdrop hidden" aria-modal="true" role="dialog">
+      <div class="survey-card card">
+        <div id="surveyQuestion" class="survey-question"></div>
+        <div id="surveyContent" class="survey-content"></div>
+        <p id="surveyError" class="survey-error"></p>
+        <div class="survey-actions">
+          <button id="surveyBack" class="btn btn-soft" type="button">Back</button>
+          <button id="surveyNext" class="btn" type="button">Save / Continue</button>
+        </div>
+      </div>
+    </section>
 
     <template id="crateTemplate">
       <article class="crate" draggable="false">
