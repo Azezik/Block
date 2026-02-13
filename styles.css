@@ -223,3 +223,15 @@ body {
 .preset.selected { outline: 3px solid #facc15; }
 
 .investment-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.2rem;
+}
+
+.survey-note {
+  margin: 0;
+  color: #cbd5e1;
+}
