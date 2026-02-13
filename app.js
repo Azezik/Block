@@ -1,181 +1,450 @@
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
+const STORAGE_KEY = 'block.custom.stacks.v1';
 
-const initialCrates = [
-  { id: 'HDIV', capacity: 6, filled: 0 },
-  { id: 'VDY', capacity: 3, filled: 0 },
-  { id: 'HCAL', capacity: 3, filled: 0 },
-  { id: 'VFV', capacity: 3, filled: 0 },
-  { id: 'TMFC', capacity: 2, filled: 0 },
-  { id: 'PHYS', capacity: 2, filled: 0 },
-  { id: 'YGOG', capacity: 1, filled: 0 },
-  { id: 'YNVD', capacity: 1, filled: 0 },
-  { id: 'YTSL', capacity: 1, filled: 0 },
-  { id: 'YAMZ', capacity: 1, filled: 0 },
-  { id: 'QQU', capacity: 1, filled: 0 }
+const initialDemoCrates = [
+  { name: 'HDIV', capacity: 6, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'VDY', capacity: 3, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'HCAL', capacity: 3, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'VFV', capacity: 3, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'TMFC', capacity: 2, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'PHYS', capacity: 2, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'YGOG', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'YNVD', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'YTSL', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'YAMZ', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 },
+  { name: 'QQU', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 }
 ];
 
-/**
- * Stack (formalized UI concept):
- * A specific collection of crates, where each crate has a name (id)
- * and a bounded block-holding amount (capacity, filled).
- */
 const state = {
-  crates: initialCrates.map((crate) => ({ ...crate })),
-  blocks: {
-    available: new Set(),
-    allocated: new Map()
-  },
-  time: {
-    month: 1,
-    progress: 0
-  },
-  nextBlockSerial: 0
+  activeTab: 'demo',
+  demo: makeRuntime({
+    stackName: 'Demo Stack',
+    monthlyContribution: 500,
+    crates: initialDemoCrates,
+    hardCapacity: true
+  }),
+  customRuntimes: [],
+  selectedCustomStackId: null,
+  survey: {
+    open: false,
+    mode: 'create',
+    step: 1,
+    editingId: null,
+    values: { stackName: '', monthlyContribution: null, customContribution: '', investments: [{ name: '', amount: '' }] }
+  }
 };
 
-const monthIndicator = document.getElementById('monthIndicator');
-const cashFill = document.getElementById('cashFill');
-const cashPercent = document.getElementById('cashPercent');
-const cashStatus = document.getElementById('cashStatus');
-const availableBlocks = document.getElementById('availableBlocks');
-const crateGrid = document.getElementById('crateGrid');
-const crateTemplate = document.getElementById('crateTemplate');
+const nodes = {
+  tabDemo: document.getElementById('tabDemo'),
+  tabMyStacks: document.getElementById('tabMyStacks'),
+  demoView: document.getElementById('demoView'),
+  myStacksView: document.getElementById('myStacksView'),
+  monthIndicator: document.getElementById('monthIndicator'),
+  cashFill: document.getElementById('cashFill'),
+  cashPercent: document.getElementById('cashPercent'),
+  cashStatus: document.getElementById('cashStatus'),
+  availableBlocks: document.getElementById('availableBlocks'),
+  crateGrid: document.getElementById('crateGrid'),
+  customMonthIndicator: document.getElementById('customMonthIndicator'),
+  customCashFill: document.getElementById('customCashFill'),
+  customCashPercent: document.getElementById('customCashPercent'),
+  customCashStatus: document.getElementById('customCashStatus'),
+  customAvailableBlocks: document.getElementById('customAvailableBlocks'),
+  customCrateGrid: document.getElementById('customCrateGrid'),
+  customStackWorkspace: document.getElementById('customStackWorkspace'),
+  customCashTitle: document.getElementById('customCashTitle'),
+  customBoardTitle: document.getElementById('customBoardTitle'),
+  stacksList: document.getElementById('stacksList'),
+  createStackBtn: document.getElementById('createStackBtn'),
+  editStackBtn: document.getElementById('editStackBtn'),
+  surveyModal: document.getElementById('surveyModal'),
+  surveyQuestion: document.getElementById('surveyQuestion'),
+  surveyContent: document.getElementById('surveyContent'),
+  surveyError: document.getElementById('surveyError'),
+  surveyBack: document.getElementById('surveyBack'),
+  surveyNext: document.getElementById('surveyNext'),
+  crateTemplate: document.getElementById('crateTemplate')
+};
 
-function getCrateById(crateId) {
-  return state.crates.find((crate) => crate.id === crateId) || null;
+function makeRuntime(stackObj) {
+  return {
+    id: crypto.randomUUID(),
+    stackName: stackObj.stackName,
+    monthlyContribution: stackObj.monthlyContribution,
+    hardCapacity: Boolean(stackObj.hardCapacity),
+    crates: stackObj.crates.map((crate) => ({
+      name: crate.name,
+      totalAmount: crate.totalAmount,
+      blocksFilled: crate.blocksFilled,
+      overflow: crate.overflow,
+      capacity: crate.capacity ?? Math.max(crate.blocksFilled, 1)
+    })),
+    blocks: { available: new Set(), allocated: new Map() },
+    time: { month: 1, progress: 0 },
+    nextBlockSerial: 0
+  };
 }
 
-function canAllocateToCrate(crateId) {
-  const crate = getCrateById(crateId);
-  return Boolean(crate) && crate.filled < crate.capacity;
+function stackObjectFromRuntime(runtime) {
+  return {
+    stackName: runtime.stackName,
+    monthlyContribution: runtime.monthlyContribution,
+    crates: runtime.crates.map((crate) => ({
+      name: crate.name,
+      totalAmount: crate.totalAmount,
+      blocksFilled: crate.blocksFilled,
+      overflow: crate.overflow
+    }))
+  };
 }
 
-function createCashBlock() {
-  state.nextBlockSerial += 1;
-  const blockId = `cash-block-${state.nextBlockSerial}`;
-  state.blocks.available.add(blockId);
-  return blockId;
-}
+function loadCustomStacks() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
 
-function allocateBlockToCrate(blockId, crateId) {
-  if (!state.blocks.available.has(blockId)) return false;
-  if (!canAllocateToCrate(crateId)) return false;
-
-  const crate = getCrateById(crateId);
-  crate.filled += 1;
-  state.blocks.available.delete(blockId);
-  state.blocks.allocated.set(blockId, crateId);
-  return true;
-}
-
-function updateTimeState() {
-  const delta = (TICK_MS / MONTH_DURATION_MS) * 100;
-  state.time.progress = Math.max(0, Math.min(100, state.time.progress + delta));
-
-  if (state.time.progress >= 100) {
-    createCashBlock();
-    state.time.month += 1;
-    state.time.progress = 0;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    state.customRuntimes = parsed.map((stack) => makeRuntime(stack));
+  } catch {
+    state.customRuntimes = [];
   }
 }
 
-function renderAvailableBlocks() {
-  availableBlocks.innerHTML = '';
+function saveCustomStacks() {
+  const portable = state.customRuntimes.map((runtime) => stackObjectFromRuntime(runtime));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(portable));
+}
 
-  state.blocks.available.forEach((blockId) => {
+function getRuntimeCrate(runtime, name) {
+  return runtime.crates.find((crate) => crate.name === name) || null;
+}
+
+function createCashBlock(runtime) {
+  runtime.nextBlockSerial += 1;
+  const blockId = `${runtime.id}-cash-block-${runtime.nextBlockSerial}`;
+  runtime.blocks.available.add(blockId);
+}
+
+function canAllocateToCrate(runtime, crateName) {
+  const crate = getRuntimeCrate(runtime, crateName);
+  if (!crate) return false;
+  if (!runtime.hardCapacity) return true;
+  return crate.blocksFilled < crate.capacity;
+}
+
+function allocateBlockToCrate(runtime, blockId, crateName) {
+  if (!runtime.blocks.available.has(blockId) || !canAllocateToCrate(runtime, crateName)) return;
+  const crate = getRuntimeCrate(runtime, crateName);
+  crate.blocksFilled += 1;
+  crate.totalAmount += runtime.monthlyContribution;
+  if (!runtime.hardCapacity) crate.capacity = crate.blocksFilled;
+  runtime.blocks.available.delete(blockId);
+  runtime.blocks.allocated.set(blockId, crateName);
+
+  if (!runtime.hardCapacity) saveCustomStacks();
+}
+
+function updateRuntimeTime(runtime) {
+  const delta = (TICK_MS / MONTH_DURATION_MS) * 100;
+  runtime.time.progress = Math.min(100, runtime.time.progress + delta);
+  if (runtime.time.progress >= 100) {
+    createCashBlock(runtime);
+    runtime.time.month += 1;
+    runtime.time.progress = 0;
+  }
+}
+
+function renderRuntime(runtime, target) {
+  target.month.textContent = `Month ${runtime.time.month}`;
+  target.fill.style.width = `${runtime.time.progress}%`;
+  target.percent.textContent = `${Math.round(runtime.time.progress)}%`;
+
+  const availableCount = runtime.blocks.available.size;
+  target.status.textContent = availableCount > 0
+    ? `${availableCount} Cash Block${availableCount > 1 ? 's' : ''} Ready`
+    : 'Filling...';
+
+  target.available.innerHTML = '';
+  runtime.blocks.available.forEach((blockId) => {
     const block = document.createElement('div');
     block.className = 'block';
     block.id = blockId;
     block.draggable = true;
-    block.textContent = '$500';
-
+    block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
     block.addEventListener('dragstart', (event) => {
       event.dataTransfer.setData('text/plain', block.id);
       event.dataTransfer.effectAllowed = 'move';
     });
-
-    availableBlocks.appendChild(block);
+    target.available.appendChild(block);
   });
-}
 
-function renderCrates() {
-  crateGrid.innerHTML = '';
-
-  state.crates.forEach((crate) => {
-    const node = crateTemplate.content.firstElementChild.cloneNode(true);
-    const label = node.querySelector('.crate-label');
-    const count = node.querySelector('.crate-count');
+  target.grid.innerHTML = '';
+  runtime.crates.forEach((crate) => {
+    const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
+    node.querySelector('.crate-label').textContent = crate.name;
+    node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.capacity}`;
     const slots = node.querySelector('.slots');
-    const gridSize = Math.ceil(Math.sqrt(crate.capacity));
-    const gridCellCount = gridSize * gridSize;
 
-    label.textContent = crate.id;
-    count.textContent = `${crate.filled}/${crate.capacity}`;
+    const gridSize = Math.ceil(Math.sqrt(crate.capacity));
     slots.style.setProperty('--grid-size', gridSize);
 
-    for (let i = 0; i < gridCellCount; i += 1) {
+    for (let i = 0; i < gridSize * gridSize; i += 1) {
       const slot = document.createElement('div');
-      const isCapacitySlot = i < crate.capacity;
-      const isFilledSlot = i < crate.filled;
       slot.className = 'slot';
-
-      if (!isCapacitySlot) {
-        slot.classList.add('ghost');
-      } else if (isFilledSlot) {
-        slot.classList.add('filled');
-      }
-
+      if (i >= crate.capacity) slot.classList.add('ghost');
+      else if (i < crate.blocksFilled) slot.classList.add('filled');
       slots.appendChild(slot);
     }
 
-    node.dataset.crateId = crate.id;
-
     node.addEventListener('dragover', (event) => {
-      if (!canAllocateToCrate(crate.id)) return;
+      if (!canAllocateToCrate(runtime, crate.name)) return;
       event.preventDefault();
       node.classList.add('over');
     });
-
-    node.addEventListener('dragleave', () => {
-      node.classList.remove('over');
-    });
-
+    node.addEventListener('dragleave', () => node.classList.remove('over'));
     node.addEventListener('drop', (event) => {
       event.preventDefault();
       node.classList.remove('over');
-
-      const blockId = event.dataTransfer.getData('text/plain');
-      const didAllocate = allocateBlockToCrate(blockId, crate.id);
-      if (!didAllocate) return;
-
+      allocateBlockToCrate(runtime, event.dataTransfer.getData('text/plain'), crate.name);
       render();
     });
 
-    crateGrid.appendChild(node);
+    target.grid.appendChild(node);
   });
 }
 
-function renderTimeAndStatus() {
-  monthIndicator.textContent = `Month ${state.time.month}`;
-  cashFill.style.width = `${state.time.progress}%`;
-  cashPercent.textContent = `${Math.round(state.time.progress)}%`;
+function renderStacksList() {
+  nodes.stacksList.innerHTML = '';
 
-  const availableCount = state.blocks.available.size;
-  cashStatus.textContent = availableCount > 0
-    ? `${availableCount} Cash Block${availableCount > 1 ? 's' : ''} Ready`
-    : 'Filling...';
+  if (state.customRuntimes.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-msg';
+    empty.innerHTML = 'No stacks yet.<br/><button class="inline-link" id="buildOwn" type="button">Build your own?</button>';
+    nodes.stacksList.appendChild(empty);
+    document.getElementById('buildOwn').addEventListener('click', openCreateSurvey);
+    nodes.customStackWorkspace.classList.add('hidden');
+    return;
+  }
+
+  state.customRuntimes.forEach((runtime) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `stack-card ${runtime.id === state.selectedCustomStackId ? 'selected' : ''}`;
+    card.innerHTML = `<strong>${runtime.stackName}</strong><span>Monthly: $${runtime.monthlyContribution.toLocaleString()}</span><span>Crates: ${runtime.crates.length}</span>`;
+    card.addEventListener('click', () => {
+      state.selectedCustomStackId = runtime.id;
+      render();
+    });
+    nodes.stacksList.appendChild(card);
+  });
 }
 
-function render() {
-  renderTimeAndStatus();
-  renderAvailableBlocks();
-  renderCrates();
+function getSelectedCustomRuntime() {
+  return state.customRuntimes.find((runtime) => runtime.id === state.selectedCustomStackId) || null;
 }
 
-function tick() {
-  updateTimeState();
+function setTab(tab) {
+  state.activeTab = tab;
+  nodes.tabDemo.classList.toggle('is-active', tab === 'demo');
+  nodes.tabMyStacks.classList.toggle('is-active', tab === 'my-stacks');
+  nodes.demoView.classList.toggle('hidden', tab !== 'demo');
+  nodes.myStacksView.classList.toggle('hidden', tab !== 'my-stacks');
+}
+
+function openCreateSurvey() {
+  state.survey = {
+    open: true,
+    mode: 'create',
+    step: 1,
+    editingId: null,
+    values: { stackName: '', monthlyContribution: null, customContribution: '', investments: [{ name: '', amount: '' }] }
+  };
+  renderSurvey();
+}
+
+function openEditSurvey() {
+  const runtime = getSelectedCustomRuntime();
+  if (!runtime) return;
+
+  state.survey = {
+    open: true,
+    mode: 'edit',
+    step: 1,
+    editingId: runtime.id,
+    values: {
+      stackName: runtime.stackName,
+      monthlyContribution: runtime.monthlyContribution,
+      customContribution: String(runtime.monthlyContribution),
+      investments: runtime.crates.map((crate) => ({ name: crate.name, amount: String(crate.totalAmount) }))
+    }
+  };
+  renderSurvey();
+}
+
+function renderSurvey() {
+  nodes.surveyModal.classList.toggle('hidden', !state.survey.open);
+  nodes.surveyError.textContent = '';
+  nodes.surveyBack.style.visibility = state.survey.step === 1 ? 'hidden' : 'visible';
+  nodes.surveyNext.textContent = state.survey.step === 3 ? 'Save Stack' : 'Save / Continue';
+
+  if (state.survey.step === 1) {
+    nodes.surveyQuestion.textContent = 'What would you like to name this stack?';
+    nodes.surveyContent.innerHTML = `<input id="stackNameInput" class="field" type="text" placeholder="Long-Term Growth" value="${state.survey.values.stackName}"/>`;
+    return;
+  }
+
+  if (state.survey.step === 2) {
+    const presets = [50, 100, 200, 250, 500, 1000, 1500, 2000]
+      .map((amount) => `<button class="preset ${state.survey.values.monthlyContribution === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`)
+      .join('');
+    nodes.surveyQuestion.textContent = 'How much do you plan to invest each month?';
+    nodes.surveyContent.innerHTML = `<div class="preset-wrap">${presets}</div><input id="customContributionInput" class="field" type="number" min="1" step="1" placeholder="Custom amount" value="${state.survey.values.customContribution}"/>`;
+    nodes.surveyContent.querySelectorAll('.preset').forEach((btn) => btn.addEventListener('click', () => {
+      state.survey.values.monthlyContribution = Number(btn.dataset.amount);
+      state.survey.values.customContribution = '';
+      renderSurvey();
+    }));
+    return;
+  }
+
+  nodes.surveyQuestion.textContent = 'What investments do you have or plan to invest in?';
+  nodes.surveyContent.innerHTML = `
+    <div id="investmentRows">
+      ${state.survey.values.investments.map((row, idx) => `
+        <div class="investment-row">
+          <input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment Name" value="${row.name}">
+          <input class="field inv-amount" data-index="${idx}" type="number" min="0" step="1" placeholder="Current Amount Invested" value="${row.amount}">
+        </div>
+      `).join('')}
+    </div>
+    <button id="addInvestment" class="btn btn-soft" type="button">Add Investment</button>
+  `;
+  nodes.surveyContent.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
+    state.survey.values.investments[Number(event.target.dataset.index)].name = event.target.value;
+  }));
+  nodes.surveyContent.querySelectorAll('.inv-amount').forEach((input) => input.addEventListener('input', (event) => {
+    state.survey.values.investments[Number(event.target.dataset.index)].amount = event.target.value;
+  }));
+  document.getElementById('addInvestment').addEventListener('click', () => {
+    state.survey.values.investments.push({ name: '', amount: '' });
+    renderSurvey();
+  });
+}
+
+function handleSurveyNext() {
+  nodes.surveyError.textContent = '';
+
+  if (state.survey.step === 1) {
+    const name = document.getElementById('stackNameInput').value.trim();
+    if (!name) return void (nodes.surveyError.textContent = 'Stack name is required.');
+    const duplicate = state.customRuntimes.some((runtime) => runtime.stackName.toLowerCase() === name.toLowerCase() && runtime.id !== state.survey.editingId);
+    if (duplicate) return void (nodes.surveyError.textContent = 'Stack name must be unique.');
+    state.survey.values.stackName = name;
+    state.survey.step = 2;
+    return renderSurvey();
+  }
+
+  if (state.survey.step === 2) {
+    const customInput = document.getElementById('customContributionInput').value;
+    const custom = customInput ? Number(customInput) : null;
+    const contribution = custom && custom > 0 ? custom : state.survey.values.monthlyContribution;
+    if (!contribution || contribution <= 0) return void (nodes.surveyError.textContent = 'Choose or enter a monthly contribution.');
+    state.survey.values.monthlyContribution = contribution;
+    state.survey.values.customContribution = customInput;
+    state.survey.step = 3;
+    return renderSurvey();
+  }
+
+  const validRows = state.survey.values.investments
+    .map((row) => ({ name: row.name.trim(), amount: row.amount === '' ? '0' : row.amount }))
+    .filter((row) => row.name);
+
+  if (validRows.length === 0) return void (nodes.surveyError.textContent = 'Add at least one investment name.');
+
+  const monthlyContribution = state.survey.values.monthlyContribution;
+  const crates = validRows.map((row) => {
+    const totalAmount = Math.max(0, Number(row.amount) || 0);
+    const blocksFilled = Math.floor(totalAmount / monthlyContribution);
+    return {
+      name: row.name,
+      totalAmount,
+      blocksFilled,
+      overflow: totalAmount % monthlyContribution,
+      capacity: Math.max(blocksFilled, 1)
+    };
+  });
+
+  const runtime = makeRuntime({
+    stackName: state.survey.values.stackName,
+    monthlyContribution,
+    crates,
+    hardCapacity: false
+  });
+
+  if (state.survey.mode === 'edit') {
+    const idx = state.customRuntimes.findIndex((entry) => entry.id === state.survey.editingId);
+    if (idx >= 0) state.customRuntimes[idx] = { ...runtime, id: state.survey.editingId };
+    state.selectedCustomStackId = state.survey.editingId;
+  } else {
+    state.customRuntimes.push(runtime);
+    state.selectedCustomStackId = runtime.id;
+  }
+
+  saveCustomStacks();
+  state.survey.open = false;
+  setTab('my-stacks');
   render();
 }
 
+function render() {
+  renderRuntime(state.demo, {
+    month: nodes.monthIndicator,
+    fill: nodes.cashFill,
+    percent: nodes.cashPercent,
+    status: nodes.cashStatus,
+    available: nodes.availableBlocks,
+    grid: nodes.crateGrid
+  });
+
+  renderStacksList();
+  const selected = getSelectedCustomRuntime();
+  if (!selected) {
+    nodes.customStackWorkspace.classList.add('hidden');
+  } else {
+    nodes.customStackWorkspace.classList.remove('hidden');
+    nodes.customCashTitle.textContent = `${selected.stackName} Cash Crate`;
+    nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
+    renderRuntime(selected, {
+      month: nodes.customMonthIndicator,
+      fill: nodes.customCashFill,
+      percent: nodes.customCashPercent,
+      status: nodes.customCashStatus,
+      available: nodes.customAvailableBlocks,
+      grid: nodes.customCrateGrid
+    });
+  }
+}
+
+function tick() {
+  if (state.activeTab === 'demo') updateRuntimeTime(state.demo);
+  const selected = getSelectedCustomRuntime();
+  if (state.activeTab === 'my-stacks' && selected) updateRuntimeTime(selected);
+  render();
+}
+
+nodes.tabDemo.addEventListener('click', () => setTab('demo'));
+nodes.tabMyStacks.addEventListener('click', () => setTab('my-stacks'));
+nodes.createStackBtn.addEventListener('click', openCreateSurvey);
+nodes.editStackBtn.addEventListener('click', openEditSurvey);
+nodes.surveyBack.addEventListener('click', () => {
+  state.survey.step -= 1;
+  renderSurvey();
+});
+nodes.surveyNext.addEventListener('click', handleSurveyNext);
+
+loadCustomStacks();
+if (state.customRuntimes[0]) state.selectedCustomStackId = state.customRuntimes[0].id;
 render();
 setInterval(tick, TICK_MS);
