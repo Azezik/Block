@@ -46,6 +46,14 @@ body {
 
 .view { display: grid; gap: 1rem; }
 
+.plan-stats {
+  display: grid;
+  gap: 0.2rem;
+  color: #cbd5e1;
+}
+
+.plan-stats p { margin: 0; }
+
 .month-pill {
   justify-self: end;
   background: #312e81;
@@ -222,7 +230,7 @@ body {
 }
 .preset.selected { outline: 3px solid #facc15; }
 
-.investment-row { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+.investment-row { display: grid; grid-template-columns: 1fr 120px; gap: 0.5rem; }
 
 .allocation-grid {
   display: grid;
