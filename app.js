@@ -2,7 +2,7 @@ const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
 const STORAGE_KEY = 'block.custom.stacks.v2';
 const LEGACY_STORAGE_KEY = 'block.custom.stacks.v1';
-const TARGET_ACTIONS_PER_YEAR = 12;
+const MONTHLY_BUDGET_OPTIONS = [50, 100, 250, 500, 750, 1000];
 
 /*
 Modularity Notes
@@ -20,8 +20,6 @@ Current Flow Map
 */
 
 const FREQUENCY_OPTIONS = {
-  weekly: { label: 'Weekly', periodsPerYear: 52, unitLabel: 'week' },
-  biweekly: { label: 'Biweekly', periodsPerYear: 26, unitLabel: 'biweekly period' },
   monthly: { label: 'Monthly', periodsPerYear: 12, unitLabel: 'month' }
 };
 
@@ -86,15 +84,13 @@ const nodes = {
 };
 
 const StackRules = {
-  round_to_nice(value) {
-    return Math.max(5, Math.round(value / 5) * 5);
-  },
-
   computeDerivedFields(stack) {
-    const periodsPerYear = FREQUENCY_OPTIONS[stack.contributionFrequency].periodsPerYear;
-    const contributionPerPeriod = stack.annualGoal / periodsPerYear;
-    const blockValue = StackRules.round_to_nice(stack.annualGoal / TARGET_ACTIONS_PER_YEAR);
-    return { periodsPerYear, contributionPerPeriod, blockValue };
+    const monthlyBudget = Number(stack.monthlyBudget);
+    const periodsPerYear = 12;
+    const contributionPerPeriod = monthlyBudget;
+    const blockValue = monthlyBudget;
+    const annualGoal = monthlyBudget * 12;
+    return { periodsPerYear, contributionPerPeriod, blockValue, annualGoal };
   },
 
   computeCrateDerived(crate, blockValue) {
@@ -106,8 +102,8 @@ const StackRules = {
 
   validateDraft(draft) {
     if (!draft.stackName || !draft.stackName.trim()) return 'Stack name is required.';
-    if (!FREQUENCY_OPTIONS[draft.contributionFrequency]) return 'Contribution frequency is invalid.';
-    if (!Number.isFinite(Number(draft.annualGoal)) || Number(draft.annualGoal) <= 0) return 'Annual goal must be greater than 0.';
+    if (draft.contributionFrequency !== 'monthly') return 'Contribution frequency is invalid.';
+    if (!MONTHLY_BUDGET_OPTIONS.includes(Number(draft.monthlyBudget))) return 'Choose a monthly budget option.';
     if (!Array.isArray(draft.investments) || draft.investments.length === 0) return 'Add at least one investment name.';
     const named = draft.investments.some((entry) => entry.name && entry.name.trim());
     if (!named) return 'Add at least one investment name.';
@@ -121,9 +117,9 @@ const StackRules = {
     const normalized = {
       stackId: draft.stackId || crypto.randomUUID(),
       stackName: draft.stackName.trim(),
-      annualGoal: Number(draft.annualGoal),
+      monthlyBudget: Number(draft.monthlyBudget),
+      annualGoal: 0,
       contributionFrequency: draft.contributionFrequency,
-      targetActionsPerYear: TARGET_ACTIONS_PER_YEAR,
       cashAccumulated: Number(draft.cashAccumulated || 0),
       generatedBlocksAvailable: Number(draft.generatedBlocksAvailable || 0),
       monthCounter: Number(draft.monthCounter || 1),
@@ -162,13 +158,33 @@ const StackRules = {
   },
 
   normalizeLoadedStack(rawStack) {
-    if (rawStack.annualGoal && rawStack.blockValue) {
+    if (rawStack.monthlyBudget && rawStack.blockValue) {
       const model = {
         stackId: rawStack.stackId || rawStack.id || crypto.randomUUID(),
         stackName: rawStack.stackName,
-        annualGoal: Number(rawStack.annualGoal),
-        contributionFrequency: rawStack.contributionFrequency,
-        targetActionsPerYear: Number(rawStack.targetActionsPerYear || TARGET_ACTIONS_PER_YEAR),
+        monthlyBudget: Number(rawStack.monthlyBudget),
+        contributionFrequency: 'monthly',
+        cashAccumulated: Number(rawStack.cashAccumulated || 0),
+        generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
+        monthCounter: Number(rawStack.monthCounter || 1),
+        elapsedMsInYear: Number(rawStack.elapsedMsInYear || 0),
+        elapsedMsInPeriod: Number(rawStack.elapsedMsInPeriod || 0),
+        investments: (rawStack.crates || []).map((crate) => ({
+          crateId: crate.crateId || crate.id || crypto.randomUUID(),
+          name: crate.name,
+          amount: Number(crate.currentAmount || 0)
+        }))
+      };
+      return StackRules.normalizeStackDraft(model);
+    }
+
+    if (rawStack.annualGoal && rawStack.blockValue) {
+      const monthlyBudget = Number(rawStack.blockValue || (Number(rawStack.annualGoal) / 12));
+      const model = {
+        stackId: rawStack.stackId || rawStack.id || crypto.randomUUID(),
+        stackName: rawStack.stackName,
+        monthlyBudget,
+        contributionFrequency: 'monthly',
         cashAccumulated: Number(rawStack.cashAccumulated || 0),
         generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
         monthCounter: Number(rawStack.monthCounter || 1),
@@ -184,10 +200,12 @@ const StackRules = {
     }
 
     const monthlyContribution = Number(rawStack.monthlyContribution || 0);
-    const legacyAnnual = monthlyContribution * 12;
+    const fallbackBudget = MONTHLY_BUDGET_OPTIONS.includes(monthlyContribution)
+      ? monthlyContribution
+      : 100;
     const legacyDraft = {
       stackName: rawStack.stackName,
-      annualGoal: legacyAnnual,
+      monthlyBudget: fallbackBudget,
       contributionFrequency: 'monthly',
       investments: (rawStack.crates || []).map((crate) => ({
         name: crate.name,
@@ -286,14 +304,7 @@ function makeDemoRuntime() {
 function getEmptySurveyValues() {
   return {
     stackName: '',
-    annualGoalPreset: null,
-    annualGoalInput: '',
-    annualGoal: null,
-    contributionFrequency: 'weekly',
-    periodsPerYear: 52,
-    contributionPerPeriod: null,
-    targetActionsPerYear: TARGET_ACTIONS_PER_YEAR,
-    blockValue: null,
+    monthlyBudget: null,
     investments: [{ name: '', amount: '' }]
   };
 }
@@ -402,12 +413,10 @@ const Renderer = {
       const card = document.createElement('button');
       card.type = 'button';
       card.className = `stack-card ${stack.stackId === state.selectedCustomStackId ? 'selected' : ''}`;
-      const frequencyLabel = FREQUENCY_OPTIONS[stack.contributionFrequency]?.label || stack.contributionFrequency;
       card.innerHTML = `
         <strong>${stack.stackName}</strong>
-        <span>Annual Goal: $${Math.round(stack.annualGoal).toLocaleString()}</span>
-        <span>Frequency: ${frequencyLabel}</span>
-        <span>Contribution / Period: $${stack.contributionPerPeriod.toFixed(2)}</span>
+        <span>Monthly Budget: $${Math.round(stack.monthlyBudget).toLocaleString()}</span>
+        <span>Annual Budget: $${Math.round(stack.annualGoal).toLocaleString()}</span>
         <span>Block Value: $${stack.blockValue.toLocaleString()}</span>
         <span>Crates: ${stack.crates.length}</span>
       `;
@@ -513,14 +522,7 @@ const SurveyUI = {
       editingId: stack.stackId,
       values: {
         stackName: stack.stackName,
-        annualGoalPreset: null,
-        annualGoalInput: String(stack.annualGoal),
-        annualGoal: stack.annualGoal,
-        contributionFrequency: stack.contributionFrequency,
-        periodsPerYear: stack.periodsPerYear,
-        contributionPerPeriod: stack.contributionPerPeriod,
-        targetActionsPerYear: stack.targetActionsPerYear,
-        blockValue: stack.blockValue,
+        monthlyBudget: MONTHLY_BUDGET_OPTIONS.includes(Number(stack.monthlyBudget)) ? Number(stack.monthlyBudget) : null,
         investments: stack.crates.map((crate) => ({ name: crate.name, amount: String(crate.currentAmount), crateId: crate.crateId }))
       }
     };
@@ -532,7 +534,7 @@ const SurveyUI = {
     nodes.surveyModal.classList.toggle('hidden', !state.survey.open);
     nodes.surveyError.textContent = '';
     nodes.surveyBack.style.visibility = state.survey.step === 1 ? 'hidden' : 'visible';
-    nodes.surveyNext.textContent = state.survey.step === 5 ? 'Save Stack' : 'Save / Continue';
+    nodes.surveyNext.textContent = state.survey.step === 3 ? 'Save Stack' : 'Save / Continue';
 
     if (state.survey.step === 1) {
       nodes.surveyQuestion.textContent = 'What would you like to name this stack?';
@@ -541,89 +543,49 @@ const SurveyUI = {
     }
 
     if (state.survey.step === 2) {
-      const presets = [600, 1200, 3000, 6000, 12000, 20000]
-        .map((amount) => `<button class="preset ${values.annualGoalPreset === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`)
+      const presets = MONTHLY_BUDGET_OPTIONS
+        .map((amount) => `<button class="preset ${values.monthlyBudget === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`)
         .join('');
-      nodes.surveyQuestion.textContent = 'How much do you want to invest by the end of the year?';
-      nodes.surveyContent.innerHTML = `<div class="preset-wrap">${presets}</div><input id="annualGoalInput" class="field" type="number" min="1" step="1" placeholder="Custom annual goal" value="${values.annualGoalInput}"/>`;
+      const perYear = values.monthlyBudget ? values.monthlyBudget * 12 : 0;
+      nodes.surveyQuestion.textContent = 'How much can you afford to invest each month?';
+      nodes.surveyContent.innerHTML = `
+        <div class="preset-wrap">${presets}</div>
+        <p class="survey-note">That’s $${perYear.toLocaleString()} per year.</p>
+        <p class="survey-note">You can add extra deposits later.</p>
+      `;
       nodes.surveyContent.querySelectorAll('.preset').forEach((btn) => btn.addEventListener('click', () => {
-        values.annualGoalPreset = Number(btn.dataset.amount);
-        values.annualGoalInput = '';
+        values.monthlyBudget = Number(btn.dataset.amount);
         SurveyUI.renderSurvey();
       }));
       return;
     }
 
     if (state.survey.step === 3) {
-      nodes.surveyQuestion.textContent = 'How often will you contribute?';
-      nodes.surveyContent.innerHTML = Object.entries(FREQUENCY_OPTIONS)
-        .map(([key, option]) => `<label class="radio-row"><input type="radio" name="frequency" value="${key}" ${values.contributionFrequency === key ? 'checked' : ''}/> ${option.label} (${option.periodsPerYear} periods/year)</label>`)
-        .join('') + '<div id="freqSummary" class="survey-note"></div>';
-
-      nodes.surveyContent.querySelectorAll('input[name="frequency"]').forEach((input) => {
-        input.addEventListener('change', (event) => {
-          values.contributionFrequency = event.target.value;
-          SurveyUI.renderSurvey();
-        });
-      });
-
-      if (values.annualGoal) {
-        const derived = StackRules.computeDerivedFields({
-          annualGoal: values.annualGoal,
-          contributionFrequency: values.contributionFrequency
-        });
-        document.getElementById('freqSummary').textContent = `Contribution per period: $${derived.contributionPerPeriod.toFixed(2)}`;
-      }
-      return;
-    }
-
-    if (state.survey.step === 4) {
-      const derived = StackRules.computeDerivedFields({
-        annualGoal: values.annualGoal,
-        contributionFrequency: values.contributionFrequency
-      });
-      const periodUnit = FREQUENCY_OPTIONS[values.contributionFrequency].unitLabel;
-
-      values.periodsPerYear = derived.periodsPerYear;
-      values.contributionPerPeriod = derived.contributionPerPeriod;
-      values.blockValue = derived.blockValue;
-
-      nodes.surveyQuestion.textContent = 'Your investing action cadence';
+      nodes.surveyQuestion.textContent = 'What do you want to invest in?';
       nodes.surveyContent.innerHTML = `
-        <p class="survey-note">You’ll contribute about $${derived.contributionPerPeriod.toFixed(2)} per ${periodUnit}.</p>
-        <p class="survey-note">You’ll invest about $${(values.annualGoal / 12).toFixed(2)} each month (1 action block).</p>
-        <p class="survey-note">Block value: $${derived.blockValue.toLocaleString()}</p>
-        <details>
-          <summary>Advanced</summary>
-          <p class="survey-note">Target actions per year defaults to ${TARGET_ACTIONS_PER_YEAR} in this version.</p>
-        </details>
+        <div id="investmentRows">
+          ${values.investments.map((row, idx) => `
+            <div class="investment-row">
+              <input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment Name" value="${row.name}">
+              <input class="field inv-amount" data-index="${idx}" type="number" min="0" step="1" placeholder="Current Amount" value="${row.amount}">
+            </div>
+          `).join('')}
+        </div>
+        <button id="addInvestment" class="btn btn-soft" type="button">Add Investment</button>
       `;
+
+      nodes.surveyContent.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
+        values.investments[Number(event.target.dataset.index)].name = event.target.value;
+      }));
+      nodes.surveyContent.querySelectorAll('.inv-amount').forEach((input) => input.addEventListener('input', (event) => {
+        values.investments[Number(event.target.dataset.index)].amount = event.target.value;
+      }));
+      document.getElementById('addInvestment').addEventListener('click', () => {
+        values.investments.push({ name: '', amount: '' });
+        SurveyUI.renderSurvey();
+      });
       return;
     }
-
-    nodes.surveyQuestion.textContent = 'What investments do you have or plan to invest in?';
-    nodes.surveyContent.innerHTML = `
-      <div id="investmentRows">
-        ${values.investments.map((row, idx) => `
-          <div class="investment-row">
-            <input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment Name" value="${row.name}">
-            <input class="field inv-amount" data-index="${idx}" type="number" min="0" step="1" placeholder="Current Amount" value="${row.amount}">
-          </div>
-        `).join('')}
-      </div>
-      <button id="addInvestment" class="btn btn-soft" type="button">Add Investment</button>
-    `;
-
-    nodes.surveyContent.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
-      values.investments[Number(event.target.dataset.index)].name = event.target.value;
-    }));
-    nodes.surveyContent.querySelectorAll('.inv-amount').forEach((input) => input.addEventListener('input', (event) => {
-      values.investments[Number(event.target.dataset.index)].amount = event.target.value;
-    }));
-    document.getElementById('addInvestment').addEventListener('click', () => {
-      values.investments.push({ name: '', amount: '' });
-      SurveyUI.renderSurvey();
-    });
   },
 
   validateAndAdvanceSurvey() {
@@ -641,17 +603,14 @@ const SurveyUI = {
     }
 
     if (state.survey.step === 2) {
-      const customInput = document.getElementById('annualGoalInput').value;
-      const customAmount = customInput ? Number(customInput) : null;
-      const annualGoal = customAmount && customAmount > 0 ? customAmount : values.annualGoalPreset;
-      if (!annualGoal || annualGoal <= 0) return void (nodes.surveyError.textContent = 'Choose or enter an annual goal.');
-      values.annualGoal = annualGoal;
-      values.annualGoalInput = customInput;
+      if (!MONTHLY_BUDGET_OPTIONS.includes(values.monthlyBudget)) {
+        return void (nodes.surveyError.textContent = 'Choose a monthly budget option.');
+      }
       state.survey.step += 1;
       return SurveyUI.renderSurvey();
     }
 
-    if (state.survey.step < 5) {
+    if (state.survey.step < 3) {
       state.survey.step += 1;
       return SurveyUI.renderSurvey();
     }
@@ -667,8 +626,8 @@ const SurveyUI = {
     const draft = {
       stackId: state.survey.mode === 'edit' ? state.survey.editingId : undefined,
       stackName: values.stackName,
-      annualGoal: values.annualGoal,
-      contributionFrequency: values.contributionFrequency,
+      monthlyBudget: values.monthlyBudget,
+      contributionFrequency: 'monthly',
       investments: values.investments
     };
 
