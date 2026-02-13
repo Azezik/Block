@@ -1,7 +1,7 @@
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
 
-const crates = [
+const initialCrates = [
   { id: 'HDIV', capacity: 6, filled: 0 },
   { id: 'VDY', capacity: 3, filled: 0 },
   { id: 'HCAL', capacity: 3, filled: 0 },
@@ -15,6 +15,24 @@ const crates = [
   { id: 'QQU', capacity: 1, filled: 0 }
 ];
 
+/**
+ * Stack (formalized UI concept):
+ * A specific collection of crates, where each crate has a name (id)
+ * and a bounded block-holding amount (capacity, filled).
+ */
+const state = {
+  crates: initialCrates.map((crate) => ({ ...crate })),
+  blocks: {
+    available: new Set(),
+    allocated: new Map()
+  },
+  time: {
+    month: 1,
+    progress: 0
+  },
+  nextBlockSerial: 0
+};
+
 const monthIndicator = document.getElementById('monthIndicator');
 const cashFill = document.getElementById('cashFill');
 const cashPercent = document.getElementById('cashPercent');
@@ -23,18 +41,67 @@ const availableBlocks = document.getElementById('availableBlocks');
 const crateGrid = document.getElementById('crateGrid');
 const crateTemplate = document.getElementById('crateTemplate');
 
-let month = 1;
-let progress = 0;
-let blockSerial = 0;
+function getCrateById(crateId) {
+  return state.crates.find((crate) => crate.id === crateId) || null;
+}
 
-function getAvailableBlockCount() {
-  return availableBlocks.childElementCount;
+function canAllocateToCrate(crateId) {
+  const crate = getCrateById(crateId);
+  return Boolean(crate) && crate.filled < crate.capacity;
+}
+
+function createCashBlock() {
+  state.nextBlockSerial += 1;
+  const blockId = `cash-block-${state.nextBlockSerial}`;
+  state.blocks.available.add(blockId);
+  return blockId;
+}
+
+function allocateBlockToCrate(blockId, crateId) {
+  if (!state.blocks.available.has(blockId)) return false;
+  if (!canAllocateToCrate(crateId)) return false;
+
+  const crate = getCrateById(crateId);
+  crate.filled += 1;
+  state.blocks.available.delete(blockId);
+  state.blocks.allocated.set(blockId, crateId);
+  return true;
+}
+
+function updateTimeState() {
+  const delta = (TICK_MS / MONTH_DURATION_MS) * 100;
+  state.time.progress = Math.max(0, Math.min(100, state.time.progress + delta));
+
+  if (state.time.progress >= 100) {
+    createCashBlock();
+    state.time.month += 1;
+    state.time.progress = 0;
+  }
+}
+
+function renderAvailableBlocks() {
+  availableBlocks.innerHTML = '';
+
+  state.blocks.available.forEach((blockId) => {
+    const block = document.createElement('div');
+    block.className = 'block';
+    block.id = blockId;
+    block.draggable = true;
+    block.textContent = '$500';
+
+    block.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData('text/plain', block.id);
+      event.dataTransfer.effectAllowed = 'move';
+    });
+
+    availableBlocks.appendChild(block);
+  });
 }
 
 function renderCrates() {
   crateGrid.innerHTML = '';
 
-  crates.forEach((crate) => {
+  state.crates.forEach((crate) => {
     const node = crateTemplate.content.firstElementChild.cloneNode(true);
     const label = node.querySelector('.crate-label');
     const count = node.querySelector('.crate-count');
@@ -52,7 +119,7 @@ function renderCrates() {
     node.dataset.crateId = crate.id;
 
     node.addEventListener('dragover', (event) => {
-      if (crate.filled >= crate.capacity) return;
+      if (!canAllocateToCrate(crate.id)) return;
       event.preventDefault();
       node.classList.add('over');
     });
@@ -64,64 +131,39 @@ function renderCrates() {
     node.addEventListener('drop', (event) => {
       event.preventDefault();
       node.classList.remove('over');
-      if (crate.filled >= crate.capacity) return;
 
       const blockId = event.dataTransfer.getData('text/plain');
-      const block = document.getElementById(blockId);
-      if (!block) return;
+      const didAllocate = allocateBlockToCrate(blockId, crate.id);
+      if (!didAllocate) return;
 
-      crate.filled += 1;
-      block.remove();
-      renderCrates();
-      updateCashStatus();
+      render();
     });
 
     crateGrid.appendChild(node);
   });
 }
 
-function spawnCashBlock() {
-  blockSerial += 1;
-  const block = document.createElement('div');
-  block.className = 'block';
-  block.id = `cash-block-${blockSerial}`;
-  block.draggable = true;
-  block.textContent = '$500';
+function renderTimeAndStatus() {
+  monthIndicator.textContent = `Month ${state.time.month}`;
+  cashFill.style.height = `${state.time.progress}%`;
+  cashPercent.textContent = `${Math.round(state.time.progress)}%`;
 
-  block.addEventListener('dragstart', (event) => {
-    event.dataTransfer.setData('text/plain', block.id);
-    event.dataTransfer.effectAllowed = 'move';
-  });
-
-  availableBlocks.appendChild(block);
-  updateCashStatus();
-}
-
-function updateCashStatus() {
-  const availableCount = getAvailableBlockCount();
+  const availableCount = state.blocks.available.size;
   cashStatus.textContent = availableCount > 0
     ? `${availableCount} Cash Block${availableCount > 1 ? 's' : ''} Ready`
     : 'Filling...';
 }
 
-function setProgress(percent) {
-  progress = Math.max(0, Math.min(100, percent));
-  cashFill.style.height = `${progress}%`;
-  cashPercent.textContent = `${Math.round(progress)}%`;
+function render() {
+  renderTimeAndStatus();
+  renderAvailableBlocks();
+  renderCrates();
 }
 
 function tick() {
-  const delta = (TICK_MS / MONTH_DURATION_MS) * 100;
-  setProgress(progress + delta);
-
-  if (progress >= 100) {
-    spawnCashBlock();
-    month += 1;
-    monthIndicator.textContent = `Month ${month}`;
-    setProgress(0);
-  }
+  updateTimeState();
+  render();
 }
 
-renderCrates();
-updateCashStatus();
+render();
 setInterval(tick, TICK_MS);
