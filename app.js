@@ -106,13 +106,25 @@ function renderCrates() {
     const label = node.querySelector('.crate-label');
     const count = node.querySelector('.crate-count');
     const slots = node.querySelector('.slots');
+    const gridSize = Math.ceil(Math.sqrt(crate.capacity));
+    const gridCellCount = gridSize * gridSize;
 
     label.textContent = crate.id;
     count.textContent = `${crate.filled}/${crate.capacity}`;
+    slots.style.setProperty('--grid-size', gridSize);
 
-    for (let i = 0; i < crate.capacity; i += 1) {
+    for (let i = 0; i < gridCellCount; i += 1) {
       const slot = document.createElement('div');
-      slot.className = `slot ${i < crate.filled ? 'filled' : ''}`.trim();
+      const isCapacitySlot = i < crate.capacity;
+      const isFilledSlot = i < crate.filled;
+      slot.className = 'slot';
+
+      if (!isCapacitySlot) {
+        slot.classList.add('ghost');
+      } else if (isFilledSlot) {
+        slot.classList.add('filled');
+      }
+
       slots.appendChild(slot);
     }
 
@@ -145,7 +157,7 @@ function renderCrates() {
 
 function renderTimeAndStatus() {
   monthIndicator.textContent = `Month ${state.time.month}`;
-  cashFill.style.height = `${state.time.progress}%`;
+  cashFill.style.width = `${state.time.progress}%`;
   cashPercent.textContent = `${Math.round(state.time.progress)}%`;
 
   const availableCount = state.blocks.available.size;
