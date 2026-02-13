@@ -328,6 +328,20 @@ function updateDemoTime(runtime) {
   }
 }
 
+function getStackCashProgressPercent(stack) {
+  if (!stack || stack.blockValue <= 0) return 0;
+
+  const yearDurationMs = MONTH_DURATION_MS * 12;
+  const periodDurationMs = yearDurationMs / stack.periodsPerYear;
+  const elapsedRatio = periodDurationMs > 0
+    ? Math.min(1, Math.max(0, stack.elapsedMsInPeriod / periodDurationMs))
+    : 0;
+  const inFlightContribution = stack.contributionPerPeriod * elapsedRatio;
+  const projectedCash = stack.cashAccumulated + inFlightContribution;
+
+  return Math.min(100, Math.max(0, (projectedCash / stack.blockValue) * 100));
+}
+
 const Renderer = {
   renderUnallocatedBlocks(stack) {
     nodes.customAvailableBlocks.innerHTML = '';
@@ -382,7 +396,7 @@ const Renderer = {
   },
 
   renderStackView(stack) {
-    const progress = Math.min(100, (stack.cashAccumulated / stack.blockValue) * 100);
+    const progress = getStackCashProgressPercent(stack);
     nodes.customMonthIndicator.textContent = `Month ${stack.monthCounter}`;
     nodes.customCashFill.style.width = `${progress}%`;
     nodes.customCashPercent.textContent = `${Math.round(progress)}%`;
