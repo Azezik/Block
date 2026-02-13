@@ -137,7 +137,7 @@ body {
   border: 1px solid #475569;
   border-radius: 10px;
   padding: 0.65rem;
-  aspect-ratio: 1 / 1;
+  min-height: 220px;
   display: flex;
   flex-direction: column;
 }
@@ -242,4 +242,51 @@ body {
 .survey-note {
   margin: 0;
   color: #cbd5e1;
+}
+
+
+.stack-layers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22px, 1fr));
+  grid-auto-rows: 1fr;
+  align-items: end;
+  min-height: 120px;
+}
+
+.layer-slot {
+  position: relative;
+  overflow: hidden;
+}
+
+.slot-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 6px;
+}
+
+.ghost-fill {
+  background: rgba(148, 163, 184, 0.25);
+  border: 1px dashed #64748b;
+}
+
+.actual-fill {
+  background: linear-gradient(180deg, #4ade80, #16a34a);
+  z-index: 2;
+}
+
+.overflow-fill {
+  background: linear-gradient(180deg, #f87171, #dc2626);
+  z-index: 3;
+}
+
+.full-block {
+  cursor: grab;
+}
+
+.crate-meta {
+  margin: 0.5rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.8rem;
 }
