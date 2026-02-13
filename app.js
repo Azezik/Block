@@ -1,23 +1,9 @@
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
-const STORAGE_KEY = 'block.custom.stacks.v2';
-const LEGACY_STORAGE_KEY = 'block.custom.stacks.v1';
-const MONTHLY_BUDGET_OPTIONS = [50, 100, 250, 500, 750, 1000];
-
-/*
-Modularity Notes
-- Add a new survey question in `SurveyUI.renderSurvey()` and gate progression in `SurveyUI.validateAndAdvanceSurvey()`.
-- Change rounding rules in `StackRules.round_to_nice()`.
-- Change frequency options in `FREQUENCY_OPTIONS`.
-- Change rendering layout in `Renderer.renderMyStacks()`, `Renderer.renderStackView()`, and `Renderer.renderCrates()`.
-
-Current Flow Map
-- Survey -> stack creation: `SurveyUI.validateAndAdvanceSurvey()` -> `StackRules.normalizeStackDraft()`.
-- Storage: `StackStorage.saveStack()`, `StackStorage.loadStacks()`, `StackStorage.loadStackById()`, `StackStorage.deleteStack()`.
-- Engine ticks: `tick()` -> `StackEngine.tickStack()`.
-- Rendering: `render()` -> `Renderer.renderMyStacks()` + `Renderer.renderStackView()`.
-- Allocation: crate drop handler -> `StackEngine.allocateBlockToCrate()`.
-*/
+const STORAGE_KEY = 'block.custom.stacks.v3';
+const LEGACY_STORAGE_KEY = 'block.custom.stacks.v2';
+const MONTHLY_BUDGET_OPTIONS = [100, 250, 500, 750, 1000];
+const DEFAULT_YEARLY_ACTION_UNITS = 12;
 
 const FREQUENCY_OPTIONS = {
   monthly: { label: 'Monthly', periodsPerYear: 12, unitLabel: 'month' }
@@ -36,6 +22,41 @@ const initialDemoCrates = [
   { name: 'YAMZ', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 },
   { name: 'QQU', capacity: 1, blocksFilled: 0, overflow: 0, totalAmount: 0 }
 ];
+
+function generateAllocationOptions(investmentCount) {
+  const optionsByCount = {
+    2: [
+      { label: 'Balanced', blocks: [6, 6] },
+      { label: 'Core + Support', blocks: [8, 4] },
+      { label: 'Concentrated', blocks: [9, 3] }
+    ],
+    3: [
+      { label: 'Balanced', blocks: [4, 4, 4] },
+      { label: 'Core + Support', blocks: [6, 3, 3] },
+      { label: 'Tilted', blocks: [5, 4, 3] }
+    ],
+    4: [
+      { label: 'Balanced', blocks: [3, 3, 3, 3] },
+      { label: 'Core + Spread', blocks: [6, 2, 2, 2] },
+      { label: 'Moderate Tilt', blocks: [4, 3, 3, 2] }
+    ],
+    5: [
+      { label: 'Balanced', blocks: [3, 3, 2, 2, 2] },
+      { label: 'Core + Satellites', blocks: [6, 2, 2, 1, 1] },
+      { label: 'Moderate Spread', blocks: [4, 3, 2, 2, 1] }
+    ]
+  };
+
+  const options = optionsByCount[investmentCount] || [];
+  return options
+    .filter((option) => option.blocks.reduce((sum, blockCount) => sum + blockCount, 0) === DEFAULT_YEARLY_ACTION_UNITS)
+    .map((option, idx) => ({
+      id: `${investmentCount}-${idx}`,
+      label: option.label,
+      blocks: option.blocks,
+      percents: option.blocks.map((blockCount) => Math.round((blockCount / DEFAULT_YEARLY_ACTION_UNITS) * 100))
+    }));
+}
 
 const state = {
   activeTab: 'demo',
@@ -85,28 +106,27 @@ const nodes = {
 
 const StackRules = {
   computeDerivedFields(stack) {
-    const monthlyBudget = Number(stack.monthlyBudget);
-    const periodsPerYear = 12;
-    const contributionPerPeriod = monthlyBudget;
-    const blockValue = monthlyBudget;
-    const annualGoal = monthlyBudget * 12;
-    return { periodsPerYear, contributionPerPeriod, blockValue, annualGoal };
-  },
-
-  computeCrateDerived(crate, blockValue) {
-    const currentAmount = Math.max(0, Number(crate.currentAmount) || 0);
-    const blocksFilled = blockValue > 0 ? Math.floor(currentAmount / blockValue) : 0;
-    const overflow = blockValue > 0 ? currentAmount % blockValue : 0;
-    return { blocksFilled, overflow, currentAmount };
+    const monthlyContribution = Number(stack.monthlyContribution);
+    const yearlyActionUnits = Number(stack.yearlyActionUnits || DEFAULT_YEARLY_ACTION_UNITS);
+    const annualTotal = monthlyContribution * yearlyActionUnits;
+    return {
+      periodsPerYear: yearlyActionUnits,
+      contributionPerPeriod: monthlyContribution,
+      blockValue: monthlyContribution,
+      annualTotal,
+      yearlyActionUnits
+    };
   },
 
   validateDraft(draft) {
     if (!draft.stackName || !draft.stackName.trim()) return 'Stack name is required.';
-    if (draft.contributionFrequency !== 'monthly') return 'Contribution frequency is invalid.';
-    if (!MONTHLY_BUDGET_OPTIONS.includes(Number(draft.monthlyBudget))) return 'Choose a monthly budget option.';
-    if (!Array.isArray(draft.investments) || draft.investments.length === 0) return 'Add at least one investment name.';
-    const named = draft.investments.some((entry) => entry.name && entry.name.trim());
-    if (!named) return 'Add at least one investment name.';
+    if (!MONTHLY_BUDGET_OPTIONS.includes(Number(draft.monthlyContribution))) return 'Choose a monthly contribution option.';
+    if (!Array.isArray(draft.investments) || draft.investments.length < 2) return 'Add at least 2 investments.';
+    if (draft.investments.length > 5) return 'Most responsible portfolios start with 2–5 investments.';
+    const namedInvestments = draft.investments.filter((entry) => entry.name && entry.name.trim());
+    if (namedInvestments.length < 2) return 'Add at least 2 investment names.';
+    const allocationOptions = generateAllocationOptions(namedInvestments.length);
+    if (!allocationOptions.some((option) => option.id === draft.selectedAllocationId)) return 'Choose an allocation style.';
     return null;
   },
 
@@ -114,12 +134,19 @@ const StackRules = {
     const validationError = StackRules.validateDraft(draft);
     if (validationError) throw new Error(validationError);
 
+    const namedInvestments = draft.investments
+      .map((entry) => ({ name: entry.name.trim(), crateId: entry.crateId || crypto.randomUUID() }))
+      .filter((entry) => entry.name);
+
+    const allocation = generateAllocationOptions(namedInvestments.length)
+      .find((option) => option.id === draft.selectedAllocationId);
+
     const normalized = {
       stackId: draft.stackId || crypto.randomUUID(),
       stackName: draft.stackName.trim(),
-      monthlyBudget: Number(draft.monthlyBudget),
-      annualGoal: 0,
-      contributionFrequency: draft.contributionFrequency,
+      monthlyContribution: Number(draft.monthlyContribution),
+      yearlyActionUnits: Number(draft.yearlyActionUnits || DEFAULT_YEARLY_ACTION_UNITS),
+      annualTotal: 0,
       cashAccumulated: Number(draft.cashAccumulated || 0),
       generatedBlocksAvailable: Number(draft.generatedBlocksAvailable || 0),
       monthCounter: Number(draft.monthCounter || 1),
@@ -130,20 +157,16 @@ const StackRules = {
 
     Object.assign(normalized, StackRules.computeDerivedFields(normalized));
 
-    normalized.crates = draft.investments
-      .map((entry) => ({ name: entry.name.trim(), currentAmount: entry.amount === '' ? 0 : entry.amount, crateId: entry.crateId || crypto.randomUUID() }))
-      .filter((entry) => entry.name)
-      .map((entry) => {
-        const derived = StackRules.computeCrateDerived(entry, normalized.blockValue);
-        return {
-          crateId: entry.crateId,
-          name: entry.name,
-          currentAmount: derived.currentAmount,
-          blocksFilled: derived.blocksFilled,
-          overflow: derived.overflow,
-          capacity: Math.max(derived.blocksFilled, 1)
-        };
-      });
+    normalized.crates = namedInvestments.map((investment, index) => {
+      const yearlyBlockTarget = allocation.blocks[index];
+      return {
+        crateId: investment.crateId,
+        name: investment.name,
+        yearlyBlockTarget,
+        blocksFilled: 0,
+        yearlyDollarTarget: yearlyBlockTarget * normalized.monthlyContribution
+      };
+    });
 
     StackRules.assertStackModel(normalized);
     return normalized;
@@ -154,65 +177,79 @@ const StackRules = {
     if (!stack.stackId || typeof stack.stackId !== 'string') throw new Error('Stack requires stackId.');
     if (!stack.stackName || typeof stack.stackName !== 'string') throw new Error('Stack requires stackName.');
     if (!Array.isArray(stack.crates)) throw new Error('Stack requires crates array.');
-    if (!Number.isFinite(stack.blockValue) || stack.blockValue <= 0) throw new Error('Stack requires valid blockValue.');
+    const totalBlocks = stack.crates.reduce((sum, crate) => sum + Number(crate.yearlyBlockTarget || 0), 0);
+    if (totalBlocks !== Number(stack.yearlyActionUnits)) throw new Error('Crate yearly block targets must equal yearly action units.');
+    stack.crates.forEach((crate) => {
+      if (!Number.isInteger(crate.yearlyBlockTarget)) throw new Error('Crate target blocks must be integer.');
+      if (crate.blocksFilled > crate.yearlyBlockTarget) throw new Error('Crate blocksFilled cannot exceed yearly target.');
+    });
   },
 
   normalizeLoadedStack(rawStack) {
-    if (rawStack.monthlyBudget && rawStack.blockValue) {
-      const model = {
+    if (rawStack.monthlyContribution && rawStack.yearlyActionUnits && Array.isArray(rawStack.crates)) {
+      const stack = {
         stackId: rawStack.stackId || rawStack.id || crypto.randomUUID(),
         stackName: rawStack.stackName,
-        monthlyBudget: Number(rawStack.monthlyBudget),
-        contributionFrequency: 'monthly',
+        monthlyContribution: Number(rawStack.monthlyContribution),
+        yearlyActionUnits: Number(rawStack.yearlyActionUnits || DEFAULT_YEARLY_ACTION_UNITS),
+        annualTotal: Number(rawStack.annualTotal || 0),
         cashAccumulated: Number(rawStack.cashAccumulated || 0),
         generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
         monthCounter: Number(rawStack.monthCounter || 1),
         elapsedMsInYear: Number(rawStack.elapsedMsInYear || 0),
         elapsedMsInPeriod: Number(rawStack.elapsedMsInPeriod || 0),
-        investments: (rawStack.crates || []).map((crate) => ({
-          crateId: crate.crateId || crate.id || crypto.randomUUID(),
+        crates: rawStack.crates.map((crate) => ({
+          crateId: crate.crateId || crypto.randomUUID(),
           name: crate.name,
-          amount: Number(crate.currentAmount || 0)
+          yearlyBlockTarget: Number(crate.yearlyBlockTarget),
+          blocksFilled: Number(crate.blocksFilled || 0),
+          yearlyDollarTarget: Number(crate.yearlyDollarTarget || Number(crate.yearlyBlockTarget) * Number(rawStack.monthlyContribution))
         }))
       };
-      return StackRules.normalizeStackDraft(model);
+      Object.assign(stack, StackRules.computeDerivedFields(stack));
+      stack.crates = stack.crates.map((crate) => ({
+        ...crate,
+        blocksFilled: Math.min(Math.max(0, crate.blocksFilled), crate.yearlyBlockTarget),
+        yearlyDollarTarget: crate.yearlyBlockTarget * stack.monthlyContribution
+      }));
+      StackRules.assertStackModel(stack);
+      return stack;
     }
 
-    if (rawStack.annualGoal && rawStack.blockValue) {
-      const monthlyBudget = Number(rawStack.blockValue || (Number(rawStack.annualGoal) / 12));
-      const model = {
-        stackId: rawStack.stackId || rawStack.id || crypto.randomUUID(),
-        stackName: rawStack.stackName,
-        monthlyBudget,
-        contributionFrequency: 'monthly',
-        cashAccumulated: Number(rawStack.cashAccumulated || 0),
-        generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
-        monthCounter: Number(rawStack.monthCounter || 1),
-        elapsedMsInYear: Number(rawStack.elapsedMsInYear || 0),
-        elapsedMsInPeriod: Number(rawStack.elapsedMsInPeriod || 0),
-        investments: (rawStack.crates || []).map((crate) => ({
-          crateId: crate.crateId || crate.id || crypto.randomUUID(),
-          name: crate.name,
-          amount: Number(crate.currentAmount || 0)
-        }))
-      };
-      return StackRules.normalizeStackDraft(model);
+    const monthlyContribution = Number(rawStack.monthlyBudget || rawStack.blockValue || rawStack.monthlyContribution || 100);
+    const fallbackBudget = MONTHLY_BUDGET_OPTIONS.includes(monthlyContribution) ? monthlyContribution : 100;
+    const normalizedCrates = (rawStack.crates || []).map((crate) => ({
+      name: String(crate.name || '').trim(),
+      blocksFilled: Number(crate.blocksFilled || 0)
+    })).filter((crate) => crate.name);
+
+    const investmentCount = Math.min(5, Math.max(2, normalizedCrates.length || 2));
+    const allocation = generateAllocationOptions(investmentCount)[0];
+    const usedCrates = normalizedCrates.slice(0, investmentCount);
+    while (usedCrates.length < investmentCount) {
+      usedCrates.push({ name: `Investment ${usedCrates.length + 1}`, blocksFilled: 0 });
     }
 
-    const monthlyContribution = Number(rawStack.monthlyContribution || 0);
-    const fallbackBudget = MONTHLY_BUDGET_OPTIONS.includes(monthlyContribution)
-      ? monthlyContribution
-      : 100;
-    const legacyDraft = {
-      stackName: rawStack.stackName,
-      monthlyBudget: fallbackBudget,
-      contributionFrequency: 'monthly',
-      investments: (rawStack.crates || []).map((crate) => ({
-        name: crate.name,
-        amount: Number(crate.totalAmount || 0)
-      }))
+    const draft = {
+      stackId: rawStack.stackId || rawStack.id || crypto.randomUUID(),
+      stackName: rawStack.stackName || 'Imported Stack',
+      monthlyContribution: fallbackBudget,
+      yearlyActionUnits: DEFAULT_YEARLY_ACTION_UNITS,
+      selectedAllocationId: allocation.id,
+      cashAccumulated: Number(rawStack.cashAccumulated || 0),
+      generatedBlocksAvailable: Number(rawStack.generatedBlocksAvailable || 0),
+      monthCounter: Number(rawStack.monthCounter || 1),
+      elapsedMsInYear: Number(rawStack.elapsedMsInYear || 0),
+      elapsedMsInPeriod: Number(rawStack.elapsedMsInPeriod || 0),
+      investments: usedCrates.map((crate) => ({ name: crate.name }))
     };
-    return StackRules.normalizeStackDraft(legacyDraft);
+
+    const stack = StackRules.normalizeStackDraft(draft);
+    stack.crates = stack.crates.map((crate, idx) => ({
+      ...crate,
+      blocksFilled: Math.min(crate.yearlyBlockTarget, Math.max(0, Number(usedCrates[idx].blocksFilled || 0)))
+    }));
+    return stack;
   }
 };
 
@@ -239,10 +276,6 @@ const StackStorage = {
     }
   },
 
-  loadStackById(id) {
-    return StackStorage.loadStacks().find((stack) => stack.stackId === id) || null;
-  },
-
   deleteStack(id) {
     const filtered = StackStorage.loadStacks().filter((stack) => stack.stackId !== id);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
@@ -251,7 +284,7 @@ const StackStorage = {
 
 const StackEngine = {
   tickStack(stack) {
-    const yearDurationMs = MONTH_DURATION_MS * 12;
+    const yearDurationMs = MONTH_DURATION_MS * Number(stack.yearlyActionUnits || DEFAULT_YEARLY_ACTION_UNITS);
     const periodDurationMs = yearDurationMs / stack.periodsPerYear;
 
     stack.elapsedMsInYear += TICK_MS;
@@ -276,13 +309,9 @@ const StackEngine = {
   allocateBlockToCrate(stack, crateId) {
     if (stack.generatedBlocksAvailable <= 0) return;
     const crate = stack.crates.find((entry) => entry.crateId === crateId);
-    if (!crate) return;
+    if (!crate || crate.blocksFilled >= crate.yearlyBlockTarget) return;
 
-    crate.currentAmount += stack.blockValue;
-    const derived = StackRules.computeCrateDerived(crate, stack.blockValue);
-    crate.blocksFilled = derived.blocksFilled;
-    crate.overflow = derived.overflow;
-    crate.capacity = Math.max(crate.capacity, crate.blocksFilled);
+    crate.blocksFilled += 1;
     stack.generatedBlocksAvailable -= 1;
     StackStorage.saveStack(stack);
   }
@@ -304,8 +333,9 @@ function makeDemoRuntime() {
 function getEmptySurveyValues() {
   return {
     stackName: '',
-    monthlyBudget: null,
-    investments: [{ name: '', amount: '' }]
+    monthlyContribution: null,
+    investments: [{ name: '' }, { name: '' }],
+    selectedAllocationId: null
   };
 }
 
@@ -331,7 +361,7 @@ function updateDemoTime(runtime) {
 function getStackCashProgressPercent(stack) {
   if (!stack || stack.blockValue <= 0) return 0;
 
-  const yearDurationMs = MONTH_DURATION_MS * 12;
+  const yearDurationMs = MONTH_DURATION_MS * Number(stack.yearlyActionUnits || DEFAULT_YEARLY_ACTION_UNITS);
   const periodDurationMs = yearDurationMs / stack.periodsPerYear;
   const elapsedRatio = periodDurationMs > 0
     ? Math.min(1, Math.max(0, stack.elapsedMsInPeriod / periodDurationMs))
@@ -363,22 +393,23 @@ const Renderer = {
     nodes.customCrateGrid.innerHTML = '';
     crates.forEach((crate) => {
       const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
+      const percentDisplay = Math.round((crate.yearlyBlockTarget / stack.yearlyActionUnits) * 100);
       node.querySelector('.crate-label').textContent = crate.name;
-      node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.capacity}`;
+      node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.yearlyBlockTarget} (${percentDisplay}%)`;
       const slots = node.querySelector('.slots');
-      const gridSize = Math.ceil(Math.sqrt(crate.capacity));
+      const gridSize = Math.ceil(Math.sqrt(crate.yearlyBlockTarget));
       slots.style.setProperty('--grid-size', gridSize);
 
       for (let i = 0; i < gridSize * gridSize; i += 1) {
         const slot = document.createElement('div');
         slot.className = 'slot';
-        if (i >= crate.capacity) slot.classList.add('ghost');
+        if (i >= crate.yearlyBlockTarget) slot.classList.add('ghost');
         else if (i < crate.blocksFilled) slot.classList.add('filled');
         slots.appendChild(slot);
       }
 
       node.addEventListener('dragover', (event) => {
-        if (stack.generatedBlocksAvailable <= 0) return;
+        if (stack.generatedBlocksAvailable <= 0 || crate.blocksFilled >= crate.yearlyBlockTarget) return;
         event.preventDefault();
         node.classList.add('over');
       });
@@ -404,9 +435,7 @@ const Renderer = {
       ? `${stack.generatedBlocksAvailable} Cash Block${stack.generatedBlocksAvailable > 1 ? 's' : ''} Ready`
       : `Accumulating cash: $${stack.cashAccumulated.toFixed(2)}`;
 
-    Renderer.renderUnallocatedBlocks(stack.unallocatedBlocks !== undefined
-      ? { ...stack, generatedBlocksAvailable: stack.unallocatedBlocks }
-      : stack);
+    Renderer.renderUnallocatedBlocks(stack);
     Renderer.renderCrates(stack.crates, stack);
   },
 
@@ -429,9 +458,9 @@ const Renderer = {
       card.className = `stack-card ${stack.stackId === state.selectedCustomStackId ? 'selected' : ''}`;
       card.innerHTML = `
         <strong>${stack.stackName}</strong>
-        <span>Monthly Budget: $${Math.round(stack.monthlyBudget).toLocaleString()}</span>
-        <span>Annual Budget: $${Math.round(stack.annualGoal).toLocaleString()}</span>
-        <span>Block Value: $${stack.blockValue.toLocaleString()}</span>
+        <span>Monthly Contribution: $${Math.round(stack.monthlyContribution).toLocaleString()}</span>
+        <span>Annual Total: $${Math.round(stack.annualTotal).toLocaleString()}</span>
+        <span>Yearly Action Units: ${stack.yearlyActionUnits}</span>
         <span>Crates: ${stack.crates.length}</span>
       `;
       card.addEventListener('click', () => {
@@ -529,6 +558,10 @@ const SurveyUI = {
     const stack = getSelectedCustomRuntime();
     if (!stack) return;
 
+    const investments = stack.crates.map((crate) => ({ name: crate.name, crateId: crate.crateId }));
+    const allocationOptions = generateAllocationOptions(investments.length);
+    const selected = allocationOptions.find((option) => option.blocks.every((count, idx) => count === stack.crates[idx].yearlyBlockTarget));
+
     state.survey = {
       open: true,
       mode: 'edit',
@@ -536,8 +569,9 @@ const SurveyUI = {
       editingId: stack.stackId,
       values: {
         stackName: stack.stackName,
-        monthlyBudget: MONTHLY_BUDGET_OPTIONS.includes(Number(stack.monthlyBudget)) ? Number(stack.monthlyBudget) : null,
-        investments: stack.crates.map((crate) => ({ name: crate.name, amount: String(crate.currentAmount), crateId: crate.crateId }))
+        monthlyContribution: stack.monthlyContribution,
+        investments,
+        selectedAllocationId: selected ? selected.id : null
       }
     };
     SurveyUI.renderSurvey();
@@ -548,7 +582,7 @@ const SurveyUI = {
     nodes.surveyModal.classList.toggle('hidden', !state.survey.open);
     nodes.surveyError.textContent = '';
     nodes.surveyBack.style.visibility = state.survey.step === 1 ? 'hidden' : 'visible';
-    nodes.surveyNext.textContent = state.survey.step === 3 ? 'Save Stack' : 'Save / Continue';
+    nodes.surveyNext.textContent = state.survey.step === 4 ? 'Save Stack' : 'Save / Continue';
 
     if (state.survey.step === 1) {
       nodes.surveyQuestion.textContent = 'What would you like to name this stack?';
@@ -558,30 +592,28 @@ const SurveyUI = {
 
     if (state.survey.step === 2) {
       const presets = MONTHLY_BUDGET_OPTIONS
-        .map((amount) => `<button class="preset ${values.monthlyBudget === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`)
+        .map((amount) => `<button class="preset ${values.monthlyContribution === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`)
         .join('');
-      const perYear = values.monthlyBudget ? values.monthlyBudget * 12 : 0;
-      nodes.surveyQuestion.textContent = 'How much can you afford to invest each month?';
+      const perYear = values.monthlyContribution ? values.monthlyContribution * DEFAULT_YEARLY_ACTION_UNITS : 0;
+      nodes.surveyQuestion.textContent = 'How much can you afford to invest every month?';
       nodes.surveyContent.innerHTML = `
         <div class="preset-wrap">${presets}</div>
-        <p class="survey-note">That’s $${perYear.toLocaleString()} per year.</p>
-        <p class="survey-note">You can add extra deposits later.</p>
+        <p class="survey-note">This results in $${perYear.toLocaleString()} invested per year.</p>
       `;
       nodes.surveyContent.querySelectorAll('.preset').forEach((btn) => btn.addEventListener('click', () => {
-        values.monthlyBudget = Number(btn.dataset.amount);
+        values.monthlyContribution = Number(btn.dataset.amount);
         SurveyUI.renderSurvey();
       }));
       return;
     }
 
     if (state.survey.step === 3) {
-      nodes.surveyQuestion.textContent = 'What do you want to invest in?';
+      nodes.surveyQuestion.textContent = 'Add your investments (2–5 total).';
       nodes.surveyContent.innerHTML = `
         <div id="investmentRows">
           ${values.investments.map((row, idx) => `
             <div class="investment-row">
               <input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment Name" value="${row.name}">
-              <input class="field inv-amount" data-index="${idx}" type="number" min="0" step="1" placeholder="Current Amount" value="${row.amount}">
             </div>
           `).join('')}
         </div>
@@ -591,14 +623,40 @@ const SurveyUI = {
       nodes.surveyContent.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
         values.investments[Number(event.target.dataset.index)].name = event.target.value;
       }));
-      nodes.surveyContent.querySelectorAll('.inv-amount').forEach((input) => input.addEventListener('input', (event) => {
-        values.investments[Number(event.target.dataset.index)].amount = event.target.value;
-      }));
       document.getElementById('addInvestment').addEventListener('click', () => {
-        values.investments.push({ name: '', amount: '' });
+        if (values.investments.length >= 5) {
+          nodes.surveyError.textContent = 'Most responsible portfolios start with 2–5 investments.';
+          return;
+        }
+        values.investments.push({ name: '' });
         SurveyUI.renderSurvey();
       });
       return;
+    }
+
+    if (state.survey.step === 4) {
+      const validRows = values.investments.map((row) => ({ ...row, name: row.name.trim() })).filter((row) => row.name);
+      const options = generateAllocationOptions(validRows.length);
+
+      nodes.surveyQuestion.textContent = 'Choose your yearly block allocation style.';
+      nodes.surveyContent.innerHTML = `
+        <div class="allocation-grid">
+          ${options.map((option) => `
+            <button type="button" class="stack-card allocation-card ${values.selectedAllocationId === option.id ? 'selected' : ''}" data-option-id="${option.id}">
+              <strong>${option.label}</strong>
+              <span>${option.blocks.join(' / ')}</span>
+              <span>(${option.percents.map((percent) => `${percent}%`).join(' / ')})</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+
+      nodes.surveyContent.querySelectorAll('.allocation-card').forEach((card) => {
+        card.addEventListener('click', () => {
+          values.selectedAllocationId = card.dataset.optionId;
+          SurveyUI.renderSurvey();
+        });
+      });
     }
   },
 
@@ -617,31 +675,31 @@ const SurveyUI = {
     }
 
     if (state.survey.step === 2) {
-      if (!MONTHLY_BUDGET_OPTIONS.includes(values.monthlyBudget)) {
-        return void (nodes.surveyError.textContent = 'Choose a monthly budget option.');
+      if (!MONTHLY_BUDGET_OPTIONS.includes(values.monthlyContribution)) {
+        return void (nodes.surveyError.textContent = 'Choose a monthly contribution option.');
       }
       state.survey.step += 1;
       return SurveyUI.renderSurvey();
     }
 
-    if (state.survey.step < 3) {
+    if (state.survey.step === 3) {
+      const validRows = values.investments.map((row) => ({ ...row, name: row.name.trim() })).filter((row) => row.name);
+
+      if (validRows.length < 2) return void (nodes.surveyError.textContent = 'Add at least 2 investment names.');
+      if (validRows.length > 5) return void (nodes.surveyError.textContent = 'Most responsible portfolios start with 2–5 investments.');
+
+      values.investments = validRows;
+      values.selectedAllocationId = null;
       state.survey.step += 1;
       return SurveyUI.renderSurvey();
     }
 
-    const validRows = values.investments
-      .map((row) => ({ name: row.name.trim(), amount: row.amount === '' ? '0' : row.amount, crateId: row.crateId }))
-      .filter((row) => row.name);
-
-    if (validRows.length === 0) return void (nodes.surveyError.textContent = 'Add at least one investment name.');
-
-    values.investments = validRows;
-
     const draft = {
       stackId: state.survey.mode === 'edit' ? state.survey.editingId : undefined,
       stackName: values.stackName,
-      monthlyBudget: values.monthlyBudget,
-      contributionFrequency: 'monthly',
+      monthlyContribution: values.monthlyContribution,
+      yearlyActionUnits: DEFAULT_YEARLY_ACTION_UNITS,
+      selectedAllocationId: values.selectedAllocationId,
       investments: values.investments
     };
 
@@ -697,7 +755,7 @@ function render() {
     nodes.customStackWorkspace.classList.remove('hidden');
     nodes.customCashTitle.textContent = `${selected.stackName} Cash Crate`;
     nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
-    Renderer.renderStackView({ ...selected, unallocatedBlocks: selected.generatedBlocksAvailable });
+    Renderer.renderStackView(selected);
   }
 }
 

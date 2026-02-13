@@ -222,7 +222,15 @@ body {
 }
 .preset.selected { outline: 3px solid #facc15; }
 
-.investment-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.investment-row { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+
+.allocation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.6rem;
+}
+
+.allocation-card { margin-top: 0; }
 
 .radio-row {
   display: flex;
