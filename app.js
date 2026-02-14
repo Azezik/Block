@@ -359,9 +359,9 @@ function updateDemoTime(runtime) {
 }
 
 
-const CRATE_RENDER_MAX_SIZE_PX = 160;
-const CRATE_RENDER_MIN_SIZE_PX = 116;
-const CRATE_RENDER_EDGE_GUTTER_PX = 6;
+const CRATE_RENDER_MAX_SIZE_PX = 168;
+const CRATE_RENDER_MIN_SIZE_PX = 124;
+const CRATE_RENDER_EDGE_GUTTER_PX = 2;
 const CRATE_RENDER_GAP_PX = 4;
 
 function renderCrateGrid(slotsNode, totalBlocks, filledBlocks, configureFilledCell) {
