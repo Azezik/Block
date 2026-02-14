@@ -177,6 +177,50 @@ body.modal-open {
 .crate.full-drop { outline: 2px solid #f87171; outline-offset: 2px; }
 
 .stacks-layout { display: grid; gap: 1rem; }
+
+.crate-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.crate-header-text h2 {
+  margin-bottom: 0.2rem;
+}
+
+.crate-subheader {
+  color: var(--muted);
+  font-size: 0.88rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.crate-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stack-nav-controls {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .stacks-list-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 .btn {
   border: 1px solid #16a34a;
@@ -481,6 +525,15 @@ body.modal-open {
     width: 44px;
     height: 44px;
     font-size: 1.5rem;
+  }
+
+  .crate-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .crate-subheader {
+    font-size: 0.82rem;
   }
 }
 
