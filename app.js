@@ -359,16 +359,29 @@ function updateDemoTime(runtime) {
 }
 
 
-const CRATE_RENDER_SIZE_PX = 156;
+const CRATE_RENDER_MAX_SIZE_PX = 168;
+const CRATE_RENDER_MIN_SIZE_PX = 124;
+const CRATE_RENDER_EDGE_GUTTER_PX = 2;
+const CRATE_RENDER_GAP_PX = 4;
 
 function renderCrateGrid(slotsNode, totalBlocks, filledBlocks, configureFilledCell) {
   const layout = computeCrateLayout(totalBlocks);
-  const cellSize = CRATE_RENDER_SIZE_PX / layout.gridSize;
+  const crateNode = slotsNode.closest('.crate');
+  const availableWidth = crateNode
+    ? crateNode.clientWidth - (CRATE_RENDER_EDGE_GUTTER_PX * 2)
+    : CRATE_RENDER_MAX_SIZE_PX;
+  const renderSize = Math.min(
+    CRATE_RENDER_MAX_SIZE_PX,
+    Math.max(CRATE_RENDER_MIN_SIZE_PX, availableWidth)
+  );
+  const totalGap = CRATE_RENDER_GAP_PX * Math.max(0, layout.gridSize - 1);
+  const cellSize = (renderSize - totalGap) / layout.gridSize;
 
   slotsNode.classList.add('crate-layout-grid');
   slotsNode.style.setProperty('--grid-size', String(layout.gridSize));
-  slotsNode.style.width = `${CRATE_RENDER_SIZE_PX}px`;
-  slotsNode.style.height = `${CRATE_RENDER_SIZE_PX}px`;
+  slotsNode.style.gap = `${CRATE_RENDER_GAP_PX}px`;
+  slotsNode.style.width = `${renderSize}px`;
+  slotsNode.style.height = `${renderSize}px`;
   slotsNode.style.gridTemplateColumns = `repeat(${layout.gridSize}, ${cellSize}px)`;
   slotsNode.style.gridTemplateRows = `repeat(${layout.gridSize}, ${cellSize}px)`;
 
