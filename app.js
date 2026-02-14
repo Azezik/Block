@@ -103,6 +103,12 @@ const nodes = {
   crateTemplate: document.getElementById('crateTemplate')
 };
 
+function normalizeBlockValue(value) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return MONTHLY_BUDGET_OPTIONS[0];
+}
+
 function adjustSlotsToTotal(raw, slots, total) {
   let adjustments = 0;
 
@@ -170,7 +176,7 @@ function computeSlotTargets(crates) {
 }
 
 function calculateTargets(stack) {
-  stack.blockValue = Number(stack.monthlyContribution);
+  stack.blockValue = normalizeBlockValue(stack.monthlyContribution);
   const slotPlan = computeSlotTargets(stack.crates);
   stack.fullStackSize = slotPlan.totalSlots;
 
@@ -425,7 +431,7 @@ const StackStorage = {
       if (!Array.isArray(parsed)) return [];
       return parsed.map((entry) => {
         if (Array.isArray(entry.stackCards) && Array.isArray(entry.cratesTemplate)) {
-          const blockValue = Number(entry.blockValue || entry.monthlyContribution || 100);
+          const blockValue = normalizeBlockValue(entry.blockValue || entry.monthlyContribution);
           const cratesTemplate = entry.cratesTemplate.map((crate) => {
             const existingAmount = Math.max(0, Number(crate.existingAmount || 0));
             const startingFilledBlocks = Number.isFinite(crate.startingFilledBlocks)
@@ -491,14 +497,16 @@ function checkAndAdvanceCompletedCard(portfolio) {
 
 const StackEngine = {
   tickStack(stack) {
+    const blockValue = normalizeBlockValue(stack.blockValue || stack.monthlyContribution);
+    stack.blockValue = blockValue;
     stack.elapsedMsInPeriod += TICK_MS;
     while (stack.elapsedMsInPeriod >= MONTH_DURATION_MS) {
       stack.monthCounter += 1;
       stack.cashBalance += stack.monthlyContribution;
       stack.elapsedMsInPeriod -= MONTH_DURATION_MS;
-      while (stack.cashBalance >= stack.blockValue) {
+      while (stack.cashBalance >= blockValue) {
         stack.waitingRoomBlocks += 1;
-        stack.cashBalance -= stack.blockValue;
+        stack.cashBalance -= blockValue;
       }
     }
 
@@ -508,8 +516,8 @@ const StackEngine = {
     activeCard.crates.forEach((crate) => {
       const template = stack.cratesTemplate.find((entry) => entry.crateId === crate.crateId);
       const rate = Math.max(0, Number(template?.overflowRatePerMinute ?? 1));
-      crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * stack.blockValue));
-      crate.valueDollars += rate * stack.blockValue * (TICK_MS / 60000);
+      crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * blockValue));
+      crate.valueDollars += rate * blockValue * (TICK_MS / 60000);
     });
     checkAndAdvanceCompletedCard(stack);
   },
@@ -758,9 +766,10 @@ function flashCrateFull(node) {
 }
 
 function getStackCashProgressPercent(stack) {
+  const blockValue = normalizeBlockValue(stack.blockValue || stack.monthlyContribution);
   const elapsedRatio = Math.min(1, Math.max(0, stack.elapsedMsInPeriod / MONTH_DURATION_MS));
   const projectedCash = stack.cashBalance + (stack.monthlyContribution * elapsedRatio);
-  return Math.min(100, Math.max(0, (projectedCash / stack.blockValue) * 100));
+  return Math.min(100, Math.max(0, (projectedCash / blockValue) * 100));
 }
 
 const Renderer = {
