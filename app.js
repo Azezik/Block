@@ -61,7 +61,6 @@ const nodes = {
   customCashPercent: document.getElementById('customCashPercent'),
   customCashStatus: document.getElementById('customCashStatus'),
   customAvailableBlocks: document.getElementById('customAvailableBlocks'),
-  customInvestmentOverflow: document.getElementById('customInvestmentOverflow'),
   tradeLog: document.getElementById('tradeLog'),
   customCrateGrid: document.getElementById('customCrateGrid'),
   customStackWorkspace: document.getElementById('customStackWorkspace'),
@@ -299,6 +298,58 @@ function getCrateBlocksAndOverflow(crate, blockValue) {
   return { value, fullBlocks, overflowPercent: Math.min(100, (remainder / blockValue) * 100) };
 }
 
+function refreshCrateFilled(crate, blockValue) {
+  const stats = getCrateBlocksAndOverflow(crate, blockValue);
+  crate.filled = stats.fullBlocks;
+}
+
+function getOrCreateCardAtIndex(portfolio, cardIndex) {
+  while (portfolio.stackCards.length <= cardIndex) {
+    portfolio.stackCards.push(makeStackCardFromTemplate(portfolio.cratesTemplate));
+  }
+  return portfolio.stackCards[cardIndex];
+}
+
+function applyValueToCrateWithRollover(portfolio, crateId, amountDollars, startCardIndex = portfolio.activeCardIndex) {
+  const amount = Number(amountDollars);
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+
+  const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
+  portfolio.blockValue = blockValue;
+
+  let remaining = amount;
+  let cardIndex = Math.max(0, Number(startCardIndex || 0));
+  let lastTouchedCardIndex = cardIndex;
+
+  while (remaining > 0.000001) {
+    const card = getOrCreateCardAtIndex(portfolio, cardIndex);
+    const crate = card.crates.find((entry) => entry.crateId === crateId);
+    if (!crate) return false;
+
+    crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * blockValue));
+    const maxValue = crate.slotTarget * blockValue;
+    const capacity = Math.max(0, maxValue - crate.valueDollars);
+
+    if (capacity > 0.000001) {
+      const applied = Math.min(capacity, remaining);
+      crate.valueDollars += applied;
+      remaining -= applied;
+      refreshCrateFilled(crate, blockValue);
+      lastTouchedCardIndex = cardIndex;
+      continue;
+    }
+
+    cardIndex += 1;
+  }
+
+  if (lastTouchedCardIndex > portfolio.activeCardIndex) {
+    portfolio.activeCardIndex = lastTouchedCardIndex;
+  }
+
+  syncPortfolioCardState(portfolio);
+  return true;
+}
+
 function isStackCardFull(card, blockValue) {
   return card.crates.every((crate) => getCrateBlocksAndOverflow(crate, blockValue).fullBlocks === crate.slotTarget);
 }
@@ -314,7 +365,8 @@ function syncPortfolioCardState(portfolio) {
     ...card,
     crates: card.crates.map((crate) => ({
       ...crate,
-      valueDollars: Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * portfolio.blockValue)))
+      valueDollars: Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * portfolio.blockValue))),
+      filled: Math.min(crate.slotTarget, Math.floor(Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * portfolio.blockValue))) / portfolio.blockValue))
     }))
   }));
 
@@ -513,11 +565,12 @@ const StackEngine = {
     ensureOverflowEngineCrates(stack.overflowEngine, stack.cratesTemplate);
     const activeCard = getActiveStackCard(stack);
     if (!activeCard) return;
+    const startCardIndex = stack.activeCardIndex;
     activeCard.crates.forEach((crate) => {
       const template = stack.cratesTemplate.find((entry) => entry.crateId === crate.crateId);
       const rate = Math.max(0, Number(template?.overflowRatePerMinute ?? 1));
-      crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * blockValue));
-      crate.valueDollars += rate * blockValue * (TICK_MS / 60000);
+      const growthDollars = rate * blockValue * (TICK_MS / 60000);
+      applyValueToCrateWithRollover(stack, crate.crateId, growthDollars, startCardIndex);
     });
     checkAndAdvanceCompletedCard(stack);
   },
@@ -525,12 +578,7 @@ const StackEngine = {
   allocateBlockToCrate(portfolio, crateId) {
     const activeCard = getActiveStackCard(portfolio);
     if (!activeCard || portfolio.waitingRoomBlocks <= 0) return false;
-    const crate = activeCard.crates.find((entry) => entry.crateId === crateId);
-    if (!crate) return false;
-    const maxValue = crate.slotTarget * portfolio.blockValue;
-    crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * portfolio.blockValue));
-    if (crate.valueDollars + portfolio.blockValue > maxValue) return false;
-    crate.valueDollars += portfolio.blockValue;
+    if (!applyValueToCrateWithRollover(portfolio, crateId, portfolio.blockValue, portfolio.activeCardIndex)) return false;
     portfolio.waitingRoomBlocks -= 1;
     const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
     logBuy(portfolio.tradingEngine, crateName, portfolio.blockValue);
@@ -789,19 +837,6 @@ const Renderer = {
     }
   },
 
-  renderInvestmentOverflowArea(portfolio, card) {
-    nodes.customInvestmentOverflow.innerHTML = '';
-    card.crates.forEach((crate) => {
-      const crateStats = getCrateBlocksAndOverflow(crate, portfolio.blockValue);
-      if (crateStats.overflowPercent <= 0.01) return;
-      const node = document.createElement('div');
-      node.className = 'block overflow-block';
-      node.draggable = false;
-      node.textContent = `${crate.name} ${Math.round(crateStats.overflowPercent)}%`;
-      nodes.customInvestmentOverflow.appendChild(node);
-    });
-  },
-
   renderCrates(crates, portfolio, editable) {
     nodes.customCrateGrid.innerHTML = '';
     crates.forEach((crate) => {
@@ -878,7 +913,6 @@ const Renderer = {
     nodes.stackCardMeta.textContent = `Stack ${cardIndex + 1}`;
 
     Renderer.renderUnallocatedBlocks(portfolio, editable);
-    Renderer.renderInvestmentOverflowArea(portfolio, card);
     Renderer.renderCrates(card.crates, portfolio, editable);
     renderTradeLog(nodes.tradeLog, portfolio.tradingEngine?.log || []);
   }
