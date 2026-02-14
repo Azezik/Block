@@ -77,6 +77,7 @@ const nodes = {
   deletePortfolioCancel: document.getElementById('deletePortfolioCancel'),
   deletePortfolioConfirm: document.getElementById('deletePortfolioConfirm'),
   surveyQuestion: document.getElementById('surveyQuestion'),
+  surveyBody: document.getElementById('surveyBody'),
   surveyContent: document.getElementById('surveyContent'),
   surveyError: document.getElementById('surveyError'),
   surveyStepLabel: document.getElementById('surveyStepLabel'),
@@ -822,6 +823,18 @@ function renderDemo() {
 const SURVEY_TOTAL_STEPS = 4;
 const SURVEY_TRANSITION_MS = 280;
 
+
+function setModalPageScrollLock(isLocked) {
+  document.body.classList.toggle('modal-open', isLocked);
+}
+
+function ensureFieldVisibleInSurvey(field) {
+  if (!field || !nodes.surveyBody) return;
+  requestAnimationFrame(() => {
+    field.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+}
+
 const SurveyUI = {
   lastRenderedStep: 1,
 
@@ -860,6 +873,7 @@ const SurveyUI = {
   cancelSurvey() {
     state.survey.open = false;
     nodes.surveyModal.classList.add('hidden');
+    setModalPageScrollLock(false);
     render();
   },
 
@@ -900,6 +914,7 @@ const SurveyUI = {
 
   updateWizardChrome() {
     nodes.surveyModal.classList.toggle('hidden', !state.survey.open);
+    setModalPageScrollLock(state.survey.open);
     nodes.surveyBack.style.visibility = state.survey.step === 1 ? 'hidden' : 'visible';
     nodes.surveyNext.textContent = state.survey.step === SURVEY_TOTAL_STEPS ? 'Save Stack' : 'Continue';
     nodes.surveyStepLabel.textContent = `Step ${state.survey.step} of ${SURVEY_TOTAL_STEPS}`;
@@ -912,6 +927,7 @@ const SurveyUI = {
     const values = state.survey.values;
     nodes.surveyError.textContent = '';
     SurveyUI.updateWizardChrome();
+    if (nodes.surveyBody) nodes.surveyBody.scrollTop = 0;
 
     const stage = document.createElement('div');
     stage.className = 'survey-stage';
@@ -1116,6 +1132,7 @@ const SurveyUI = {
     saveAllCustomStacks();
     state.survey.open = false;
     nodes.surveyModal.classList.add('hidden');
+    setModalPageScrollLock(false);
     render();
   }
 };
@@ -1207,6 +1224,14 @@ nodes.surveyCancel.addEventListener('click', (event) => {
 });
 nodes.surveyBack.addEventListener('click', () => SurveyUI.goBack());
 nodes.surveyNext.addEventListener('click', () => SurveyUI.validateAndAdvanceSurvey());
+
+
+nodes.surveyModal.addEventListener('focusin', (event) => {
+  if (!state.survey.open) return;
+  if (!(event.target instanceof HTMLElement)) return;
+  if (!event.target.matches('input, select, textarea')) return;
+  ensureFieldVisibleInSurvey(event.target);
+});
 
 document.addEventListener('keydown', (event) => {
   if (!state.survey.open) return;
