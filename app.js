@@ -25,6 +25,7 @@ const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
 const STORAGE_KEY = 'block.custom.stacks.v6';
 const LEGACY_STORAGE_KEY = 'block.custom.stacks.v3';
+const OVERFLOW_COMPLETION_EPSILON = 1e-6;
 const MONTHLY_BUDGET_OPTIONS = [100, 250, 500, 750, 1000];
 const MAX_STACK_SLOTS = 24;
 const MIN_STACK_SLOTS = 10;
@@ -245,8 +246,8 @@ function toPortfolioModel(stack) {
 
   const moneyEngineCrates = cratesTemplate.map((crate) => {
     const existingAmount = Number(crate.existingAmount || 0);
-    const startingFilledBlocks = Math.floor(existingAmount / normalized.blockValue);
-    const overflowDollars = existingAmount % normalized.blockValue;
+    const startingFilledBlocks = getNormalizedFullBlockCount(existingAmount, normalized.blockValue);
+    const overflowDollars = getNormalizedOverflowRemainder(existingAmount, normalized.blockValue, startingFilledBlocks);
     crate.startingFilledBlocks = startingFilledBlocks;
     crate.overflowDollars = overflowDollars;
     return {
@@ -319,11 +320,37 @@ function getActiveStackCard(portfolio) {
   return portfolio.stackCards[portfolio.activeCardIndex] || null;
 }
 
+function getNormalizedFullBlockCount(valueDollars, blockValue, slotTarget = Number.POSITIVE_INFINITY) {
+  if (!Number.isFinite(valueDollars) || valueDollars <= 0) return 0;
+
+  const safeBlockValue = normalizeBlockValue(blockValue);
+  const safeSlotTarget = Number.isFinite(slotTarget)
+    ? Math.max(0, Math.floor(slotTarget))
+    : Number.POSITIVE_INFINITY;
+  const rawBlocks = valueDollars / safeBlockValue;
+  const completedBlocks = Math.floor(rawBlocks + OVERFLOW_COMPLETION_EPSILON);
+
+  return Math.min(safeSlotTarget, Math.max(0, completedBlocks));
+}
+
+function getNormalizedOverflowRemainder(valueDollars, blockValue, fullBlocks) {
+  if (!Number.isFinite(valueDollars) || valueDollars <= 0) return 0;
+
+  const safeBlockValue = normalizeBlockValue(blockValue);
+  const consumedValue = Math.max(0, Number(fullBlocks) || 0) * safeBlockValue;
+  const rawRemainder = Math.max(0, valueDollars - consumedValue);
+  const remainderFraction = rawRemainder / safeBlockValue;
+
+  if (remainderFraction <= OVERFLOW_COMPLETION_EPSILON) return 0;
+  return Math.min(safeBlockValue, rawRemainder);
+}
+
 function getCrateBlocksAndOverflow(crate, blockValue) {
-  const value = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * blockValue));
-  const fullBlocks = Math.min(crate.slotTarget, Math.floor(value / blockValue));
-  const remainder = Math.max(0, value - (fullBlocks * blockValue));
-  return { value, fullBlocks, overflowPercent: Math.min(100, (remainder / blockValue) * 100) };
+  const safeBlockValue = normalizeBlockValue(blockValue);
+  const value = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * safeBlockValue));
+  const fullBlocks = getNormalizedFullBlockCount(value, safeBlockValue, crate.slotTarget);
+  const remainder = getNormalizedOverflowRemainder(value, safeBlockValue, fullBlocks);
+  return { value, fullBlocks, overflowPercent: Math.min(100, (remainder / safeBlockValue) * 100) };
 }
 
 function refreshCrateFilled(crate, blockValue) {
@@ -412,7 +439,11 @@ function syncPortfolioCardState(portfolio) {
     crates: card.crates.map((crate) => ({
       ...crate,
       valueDollars: Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * portfolio.blockValue))),
-      filled: Math.min(crate.slotTarget, Math.floor(Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * portfolio.blockValue))) / portfolio.blockValue))
+      filled: getNormalizedFullBlockCount(
+        Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * portfolio.blockValue))),
+        portfolio.blockValue,
+        crate.slotTarget
+      )
     }))
   }));
 
@@ -606,8 +637,8 @@ function updateMoneyEngineCrateTotals(portfolio, crateId, deltaDollars) {
   const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
   const nextAmount = Math.max(0, Number(engineCrate.existingAmount || 0) + delta);
   engineCrate.existingAmount = nextAmount;
-  engineCrate.startingFilledBlocks = blockValue > 0 ? Math.floor(nextAmount / blockValue) : 0;
-  engineCrate.overflowDollars = blockValue > 0 ? nextAmount % blockValue : 0;
+  engineCrate.startingFilledBlocks = getNormalizedFullBlockCount(nextAmount, blockValue);
+  engineCrate.overflowDollars = getNormalizedOverflowRemainder(nextAmount, blockValue, engineCrate.startingFilledBlocks);
 }
 
 const StackEngine = {
@@ -655,7 +686,7 @@ const StackEngine = {
     if (!crate) return false;
 
     crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * portfolio.blockValue));
-    const filledBlocks = Math.floor(crate.valueDollars / portfolio.blockValue);
+    const filledBlocks = getNormalizedFullBlockCount(crate.valueDollars, portfolio.blockValue, crate.slotTarget);
     if (filledBlocks <= 0) return false;
 
     crate.valueDollars = Math.max(0, crate.valueDollars - portfolio.blockValue);
@@ -677,8 +708,8 @@ const StackEngine = {
 
     from.valueDollars = Math.max(0, Number(from.valueDollars || (from.filled || 0) * portfolio.blockValue));
     to.valueDollars = Math.max(0, Number(to.valueDollars || (to.filled || 0) * portfolio.blockValue));
-    const fromBlocks = Math.floor(from.valueDollars / portfolio.blockValue);
-    const toBlocks = Math.floor(to.valueDollars / portfolio.blockValue);
+    const fromBlocks = getNormalizedFullBlockCount(from.valueDollars, portfolio.blockValue, from.slotTarget);
+    const toBlocks = getNormalizedFullBlockCount(to.valueDollars, portfolio.blockValue, to.slotTarget);
     if (fromBlocks <= 0 || toBlocks >= to.slotTarget) return false;
 
     from.valueDollars = Math.max(0, from.valueDollars - portfolio.blockValue);
