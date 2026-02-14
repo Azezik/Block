@@ -394,7 +394,7 @@ const StackRules = {
             filled: Number(crate.filled ?? crate.blocksFilled ?? (legacyPlanned + legacyExtra)),
             existingAmount: Math.max(0, Number(crate.existingAmount || 0)),
             overflowRatePerMinute: Math.max(0, Number(crate.overflowRatePerMinute ?? 1))
-          };
+          });
         })
       };
       return calculateTargets(stack);
@@ -441,7 +441,7 @@ const StackStorage = {
               overflowDollars,
               overflowRatePerMinute: Math.max(0, Number(crate.overflowRatePerMinute ?? 1))
             };
-          };
+          });
           const moneyEngineCrates = cratesTemplate.map((crate) => ({
             crateId: crate.crateId,
             existingAmount: crate.existingAmount,
