@@ -19,7 +19,7 @@ import {
   ensureOverflowEngineCrates
 } from './overflowEngine.js';
 import { renderTradeLog } from './tradeLog.js';
-import { createTradingEngineState, logBuy } from './tradingEngine.js';
+import { createTradingEngineState, logBuy, logSell } from './tradingEngine.js';
 
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
@@ -550,6 +550,29 @@ function checkAndAdvanceCompletedCard(portfolio) {
   syncPortfolioCardState(portfolio);
 }
 
+function updateMoneyEngineCrateTotals(portfolio, crateId, deltaDollars) {
+  const delta = Number(deltaDollars);
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.000001) return;
+
+  const templateCrate = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId);
+  if (templateCrate) {
+    templateCrate.existingAmount = Math.max(0, Number(templateCrate.existingAmount || 0) + delta);
+  }
+
+  if (!portfolio.moneyEngine || !Array.isArray(portfolio.moneyEngine.crates)) {
+    return;
+  }
+
+  const engineCrate = portfolio.moneyEngine.crates.find((entry) => entry.crateId === crateId);
+  if (!engineCrate) return;
+
+  const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
+  const nextAmount = Math.max(0, Number(engineCrate.existingAmount || 0) + delta);
+  engineCrate.existingAmount = nextAmount;
+  engineCrate.startingFilledBlocks = blockValue > 0 ? Math.floor(nextAmount / blockValue) : 0;
+  engineCrate.overflowDollars = blockValue > 0 ? nextAmount % blockValue : 0;
+}
+
 const StackEngine = {
   tickStack(stack) {
     const blockValue = normalizeBlockValue(stack.blockValue || stack.monthlyContribution);
@@ -582,8 +605,29 @@ const StackEngine = {
     if (!activeCard || portfolio.waitingRoomBlocks <= 0) return false;
     if (!applyValueToCrateWithRollover(portfolio, crateId, portfolio.blockValue, portfolio.activeCardIndex).applied) return false;
     portfolio.waitingRoomBlocks -= 1;
+    updateMoneyEngineCrateTotals(portfolio, crateId, portfolio.blockValue);
     const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
     logBuy(portfolio.tradingEngine, crateName, portfolio.blockValue);
+    checkAndAdvanceCompletedCard(portfolio);
+    return true;
+  },
+
+  sellBlockToWaitingRoom(portfolio, crateId) {
+    const activeCard = getActiveStackCard(portfolio);
+    if (!activeCard) return false;
+    const crate = activeCard.crates.find((item) => item.crateId === crateId);
+    if (!crate) return false;
+
+    crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * portfolio.blockValue));
+    const filledBlocks = Math.floor(crate.valueDollars / portfolio.blockValue);
+    if (filledBlocks <= 0) return false;
+
+    crate.valueDollars = Math.max(0, crate.valueDollars - portfolio.blockValue);
+    portfolio.waitingRoomBlocks += 1;
+    updateMoneyEngineCrateTotals(portfolio, crateId, -portfolio.blockValue);
+
+    const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
+    logSell(portfolio.tradingEngine, crateName, portfolio.blockValue);
     checkAndAdvanceCompletedCard(portfolio);
     return true;
   },
@@ -825,6 +869,33 @@ function getStackCashProgressPercent(stack) {
 const Renderer = {
   renderUnallocatedBlocks(portfolio, editable) {
     nodes.customAvailableBlocks.innerHTML = '';
+    if (editable) {
+      nodes.customAvailableBlocks.ondragover = (event) => {
+        const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+        if (payload.type !== 'full-block') return;
+        event.preventDefault();
+        nodes.customAvailableBlocks.classList.add('over');
+      };
+      nodes.customAvailableBlocks.ondragleave = () => {
+        nodes.customAvailableBlocks.classList.remove('over');
+      };
+      nodes.customAvailableBlocks.ondrop = (event) => {
+        const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+        nodes.customAvailableBlocks.classList.remove('over');
+        if (payload.type !== 'full-block') return;
+        event.preventDefault();
+        const ok = StackEngine.sellBlockToWaitingRoom(portfolio, payload.fromCrateId);
+        if (!ok) flashCrateFull(nodes.customAvailableBlocks);
+        saveAllCustomStacks();
+        render();
+      };
+    } else {
+      nodes.customAvailableBlocks.ondragover = null;
+      nodes.customAvailableBlocks.ondragleave = null;
+      nodes.customAvailableBlocks.ondrop = null;
+      nodes.customAvailableBlocks.classList.remove('over');
+    }
+
     for (let i = 0; i < portfolio.waitingRoomBlocks; i += 1) {
       const block = document.createElement('div');
       block.className = 'block';
