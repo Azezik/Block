@@ -1,3 +1,5 @@
+import { computeCrateLayout } from './crateLayoutEngine.js';
+
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
 const STORAGE_KEY = 'block.custom.stacks.v5';
@@ -352,6 +354,46 @@ function updateDemoTime(runtime) {
   }
 }
 
+
+const CRATE_RENDER_SIZE_PX = 156;
+
+function renderCrateGrid(slotsNode, totalBlocks, filledBlocks, configureFilledCell) {
+  const layout = computeCrateLayout(totalBlocks);
+  const cellSize = CRATE_RENDER_SIZE_PX / layout.gridSize;
+
+  slotsNode.classList.add('crate-layout-grid');
+  slotsNode.style.setProperty('--grid-size', String(layout.gridSize));
+  slotsNode.style.width = `${CRATE_RENDER_SIZE_PX}px`;
+  slotsNode.style.height = `${CRATE_RENDER_SIZE_PX}px`;
+  slotsNode.style.gridTemplateColumns = `repeat(${layout.gridSize}, ${cellSize}px)`;
+  slotsNode.style.gridTemplateRows = `repeat(${layout.gridSize}, ${cellSize}px)`;
+
+  layout.cells.forEach((layoutCell, index) => {
+    const cell = document.createElement('div');
+    cell.className = 'slot crate-cell';
+    cell.style.width = `${cellSize}px`;
+    cell.style.height = `${cellSize}px`;
+
+    const fill = document.createElement('div');
+    fill.className = 'slot-fill';
+
+    if (layoutCell.empty) {
+      fill.classList.add('ghost-fill');
+      fill.style.height = '100%';
+    } else {
+      const isFilled = index < filledBlocks;
+      fill.classList.add('actual-fill');
+      fill.style.height = isFilled ? '100%' : '0%';
+      if (isFilled && typeof configureFilledCell === 'function') {
+        configureFilledCell(fill);
+      }
+    }
+
+    cell.append(fill);
+    slotsNode.appendChild(cell);
+  });
+}
+
 function flashCrateFull(node) {
   node.classList.add('full-drop');
   setTimeout(() => node.classList.remove('full-drop'), 250);
@@ -385,30 +427,13 @@ const Renderer = {
       node.querySelector('.crate-label').textContent = crate.name;
       node.querySelector('.crate-count').textContent = `${crate.filled}/${crate.slotTarget}`;
       const slots = node.querySelector('.slots');
-      slots.classList.add('stack-layers');
-
-      for (let i = 0; i < Math.max(1, crate.slotTarget); i += 1) {
-        const cell = document.createElement('div');
-        cell.className = 'slot layer-slot';
-        const ghost = document.createElement('div');
-        ghost.className = 'slot-fill ghost-fill';
-        ghost.style.height = '100%';
-
-        const actual = document.createElement('div');
-        actual.className = 'slot-fill actual-fill';
-        actual.style.height = `${i < crate.filled ? 100 : 0}%`;
-
-        if (i < crate.filled) {
-          actual.classList.add('full-block');
-          actual.draggable = true;
-          actual.addEventListener('dragstart', (event) => {
-            event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'full-block', fromCrateId: crate.crateId }));
-          });
-        }
-
-        cell.append(ghost, actual);
-        slots.appendChild(cell);
-      }
+      renderCrateGrid(slots, crate.slotTarget, crate.filled, (fillNode) => {
+        fillNode.classList.add('full-block');
+        fillNode.draggable = true;
+        fillNode.addEventListener('dragstart', (event) => {
+          event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'full-block', fromCrateId: crate.crateId }));
+        });
+      });
 
       const summary = document.createElement('p');
       summary.className = 'crate-meta';
@@ -504,12 +529,7 @@ function renderDemo() {
     node.querySelector('.crate-label').textContent = crate.name;
     node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.capacity}`;
     const slots = node.querySelector('.slots');
-
-    for (let i = 0; i < crate.capacity; i += 1) {
-      const slot = document.createElement('div');
-      slot.className = `slot ${i < crate.blocksFilled ? 'filled' : ''}`;
-      slots.appendChild(slot);
-    }
+    renderCrateGrid(slots, crate.capacity, crate.blocksFilled);
 
     node.addEventListener('dragover', (event) => { if (crate.blocksFilled < crate.capacity) event.preventDefault(); });
     node.addEventListener('drop', (event) => {
