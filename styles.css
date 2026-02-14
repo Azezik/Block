@@ -46,13 +46,13 @@ body {
 
 .view { display: grid; gap: 1rem; }
 
-.plan-stats {
+.stack-stats {
   display: grid;
   gap: 0.2rem;
   color: #cbd5e1;
 }
 
-.plan-stats p { margin: 0; }
+.stack-stats p { margin: 0; }
 
 .month-pill {
   justify-self: end;
@@ -163,6 +163,7 @@ body {
 .slot.filled { border-color: #2563eb; background: linear-gradient(145deg, #60a5fa, var(--slot-filled)); }
 .slot.ghost { border-style: dashed; border-color: #475569; background: rgba(148, 163, 184, 0.12); }
 .crate.over { outline: 2px solid #facc15; outline-offset: 2px; }
+.crate.full-drop { outline: 2px solid #f87171; outline-offset: 2px; }
 
 .stacks-layout { display: grid; gap: 1rem; }
 .stacks-list-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
