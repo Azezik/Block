@@ -1,4 +1,5 @@
 import { createPortfolioQuickReport } from './portfolioQuickReport.js';
+import { createInvestmentSettingsRow } from './investmentSettingsRow.js';
 
 export function createPortfolioSettings({ rootNode, saveNode, cancelNode, deleteNode, addInvestmentNode, onSave, onCancel, onDeleteRequested, monthlyOptions }) {
   const nameInput = rootNode.querySelector('#portfolioSettingsName');
@@ -38,23 +39,23 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
   function renderInvestments() {
     investmentsNode.innerHTML = '';
     draft.investments.forEach((investment, idx) => {
-      const row = document.createElement('div');
-      row.className = 'investment-row';
-      row.innerHTML = `<input class="field" data-role="name" data-index="${idx}" value="${investment.name}" placeholder="Investment name"><input class="field" data-role="pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${investment.targetPercent.toFixed(1)}">`;
+      const row = createInvestmentSettingsRow({
+        investment,
+        index: idx,
+        onNameInput: (event) => {
+          draft.investments[Number(event.target.dataset.index)].name = event.target.value;
+        },
+        onPercentInput: (event) => {
+          const eventIndex = Number(event.target.dataset.index);
+          rebalanceFrom(eventIndex, Number(event.target.value));
+          renderInvestments();
+        },
+        onExistingAmountInput: (event) => {
+          const eventIndex = Number(event.target.dataset.index);
+          draft.investments[eventIndex].existingAmount = Math.max(0, Number(event.target.value || 0));
+        }
+      });
       investmentsNode.appendChild(row);
-    });
-
-    investmentsNode.querySelectorAll('[data-role="name"]').forEach((input) => {
-      input.addEventListener('input', (event) => {
-        draft.investments[Number(event.target.dataset.index)].name = event.target.value;
-      });
-    });
-    investmentsNode.querySelectorAll('[data-role="pct"]').forEach((input) => {
-      input.addEventListener('input', (event) => {
-        const idx = Number(event.target.dataset.index);
-        rebalanceFrom(idx, Number(event.target.value));
-        renderInvestments();
-      });
     });
   }
 
@@ -82,7 +83,7 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
   });
 
   return {
-    load(portfolio, report) {
+    load(portfolio, report, suggestedExistingAmountsByCrateId = new Map()) {
       draft = {
         stackId: portfolio.stackId,
         stackName: portfolio.stackName,
@@ -91,7 +92,11 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
           crateId: crate.crateId,
           name: crate.name,
           targetPercent: crate.requestedPercent,
-          existingAmount: Number(crate.existingAmount || 0)
+          existingAmount: Math.max(0, Number(
+            suggestedExistingAmountsByCrateId.get(crate.crateId)
+            ?? crate.existingAmount
+            ?? 0
+          ))
         }))
       };
       errorNode.textContent = '';
