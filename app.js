@@ -400,7 +400,7 @@ const StackRules = {
             filled: Number(crate.filled ?? crate.blocksFilled ?? (legacyPlanned + legacyExtra)),
             existingAmount: Math.max(0, Number(crate.existingAmount || 0)),
             overflowRatePerMinute: Math.max(0, Number(crate.overflowRatePerMinute ?? 1))
-          });
+          };
         })
       };
       return calculateTargets(stack);
