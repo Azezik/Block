@@ -124,8 +124,8 @@
       </section>
     </main>
 
-    <section id="surveyModal" class="survey-backdrop hidden" aria-modal="true" role="dialog" aria-labelledby="surveyQuestion">
-      <div class="survey-card card" role="document">
+    <section id="surveyModal" class="survey-backdrop modal-backdrop hidden" aria-modal="true" role="dialog" aria-labelledby="surveyQuestion">
+      <div class="survey-card card modal-shell" role="document">
         <header class="survey-topbar">
           <div class="survey-progress">
             <p id="surveyStepLabel" class="survey-step-label">Step 1 of 4</p>
@@ -136,14 +136,18 @@
           <button id="surveyClose" class="icon-btn" type="button" aria-label="Close wizard">×</button>
         </header>
 
-        <div id="surveyQuestion" class="survey-question"></div>
-        <div id="surveyContent" class="survey-content"></div>
-        <p id="surveyError" class="survey-error"></p>
+        <div id="surveyBody" class="modal-scroll-body survey-scroll-body">
+          <div id="surveyQuestion" class="survey-question"></div>
+          <div id="surveyContent" class="survey-content"></div>
+        </div>
 
-        <div class="survey-actions">
-          <button id="surveyBack" class="btn btn-soft" type="button">Back</button>
-          <a href="#" id="surveyCancel" class="survey-cancel-link">Cancel</a>
-          <button id="surveyNext" class="btn" type="button" disabled>Save / Continue</button>
+        <div class="modal-sticky-footer survey-footer">
+          <p id="surveyError" class="survey-error"></p>
+          <div class="survey-actions">
+            <button id="surveyBack" class="btn btn-soft" type="button">Back</button>
+            <a href="#" id="surveyCancel" class="survey-cancel-link">Cancel</a>
+            <button id="surveyNext" class="btn" type="button" disabled>Save / Continue</button>
+          </div>
         </div>
       </div>
     </section>
