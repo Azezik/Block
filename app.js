@@ -2,6 +2,12 @@ import { computeCrateLayout } from './crateLayoutEngine.js';
 import { createStackSelector } from './stackSelector.js';
 import { createStackCarousel } from './stackCarousel.js';
 import { createPortfolioSettings } from './portfolioSettings.js';
+import {
+  autoDistributeAll,
+  buildSurveyInvestment,
+  formatPercentForInput,
+  normalizeManualPercentChange
+} from './surveyPercentAllocator.js';
 
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
@@ -81,31 +87,6 @@ const nodes = {
   surveyNext: document.getElementById('surveyNext'),
   crateTemplate: document.getElementById('crateTemplate')
 };
-
-function normalizePercentDraft(investments, changedIndex, changedPercent) {
-  const bounded = Math.max(0, Math.min(100, changedPercent));
-  const totalOther = investments.reduce((sum, item, idx) => sum + (idx === changedIndex ? 0 : item.targetPercent), 0);
-  const targetOther = 100 - bounded;
-  if (investments.length === 1) {
-    investments[0].targetPercent = 100;
-    return;
-  }
-
-  if (totalOther <= 0) {
-    const even = targetOther / (investments.length - 1);
-    investments.forEach((item, idx) => {
-      item.targetPercent = idx === changedIndex ? bounded : even;
-    });
-  } else {
-    investments.forEach((item, idx) => {
-      if (idx === changedIndex) item.targetPercent = bounded;
-      else item.targetPercent = (item.targetPercent / totalOther) * targetOther;
-    });
-  }
-
-  const rawTotal = investments.reduce((sum, item) => sum + item.targetPercent, 0);
-  investments[investments.length - 1].targetPercent += (100 - rawTotal);
-}
 
 function adjustSlotsToTotal(raw, slots, total) {
   let adjustments = 0;
@@ -534,7 +515,10 @@ function getEmptySurveyValues() {
   return {
     stackName: '',
     monthlyContribution: null,
-    investments: [{ name: '', targetPercent: 50, existingAmount: 0 }, { name: '', targetPercent: 50, existingAmount: 0 }]
+    investments: [
+      buildSurveyInvestment('', 50, 0),
+      buildSurveyInvestment('', 50, 0)
+    ]
   };
 }
 
@@ -859,10 +843,12 @@ const SurveyUI = {
         stackName: stack.stackName,
         monthlyContribution: stack.monthlyContribution,
         investments: stack.cratesTemplate.map((crate) => ({
-          name: crate.name,
-          crateId: crate.crateId,
-          targetPercent: crate.requestedPercent,
-          existingAmount: Number(crate.existingAmount || 0),
+          ...buildSurveyInvestment(
+            crate.name,
+            crate.requestedPercent,
+            Number(crate.existingAmount || 0),
+            crate.crateId
+          ),
           filled: crate.filled
         }))
       }
@@ -896,7 +882,13 @@ const SurveyUI = {
 
     if (state.survey.step === 3) {
       const named = values.investments
-        .map((item) => ({ ...item, name: item.name.trim(), existingAmount: Math.max(0, Number(item.existingAmount || 0)) }))
+        .map((item) => ({
+          name: item.name.trim(),
+          crateId: item.crateId,
+          targetPercent: Number(item.targetPercent || 0),
+          existingAmount: Math.max(0, Number(item.existingAmount || 0)),
+          filled: item.filled
+        }))
         .filter((item) => item.name);
       if (named.length < 2 || named.length > 20) return false;
       const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
@@ -933,10 +925,16 @@ const SurveyUI = {
       stage.innerHTML = `<div class="preset-wrap">${presets}</div><p class="survey-note">1 block mints each simulator month. Block value matches your monthly savings.</p>`;
     } else if (state.survey.step === 3) {
       nodes.surveyQuestion.textContent = 'Add your investments, target %, and existing amount (2-20).';
-      stage.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${Number(row.targetPercent || 0).toFixed(1)}"><input class="field inv-existing" data-index="${idx}" type="number" min="0" step="1" value="${Math.max(0, Number(row.existingAmount || 0))}" placeholder="Existing amount"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
+      stage.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="text" inputmode="decimal" value="${row.percentInput ?? formatPercentForInput(row.targetPercent)}"><input class="field inv-existing" data-index="${idx}" type="number" min="0" step="1" value="${Math.max(0, Number(row.existingAmount || 0))}" placeholder="Existing amount"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
     } else {
       const named = values.investments
-        .map((item) => ({ ...item, name: item.name.trim(), existingAmount: Math.max(0, Number(item.existingAmount || 0)) }))
+        .map((item) => ({
+          name: item.name.trim(),
+          crateId: item.crateId,
+          targetPercent: Number(item.targetPercent || 0),
+          existingAmount: Math.max(0, Number(item.existingAmount || 0)),
+          filled: item.filled
+        }))
         .filter((item) => item.name);
       const tempStack = StackRules.normalizeStackDraft({
         stackName: values.stackName,
@@ -986,8 +984,24 @@ const SurveyUI = {
 
     stage.querySelectorAll('.inv-pct').forEach((input) => input.addEventListener('input', (event) => {
       const idx = Number(event.target.dataset.index);
-      normalizePercentDraft(values.investments, idx, Number(event.target.value));
-      SurveyUI.renderSurvey({ animate: false });
+      const didNormalize = normalizeManualPercentChange(values.investments, idx, event.target.value);
+      if (!didNormalize) {
+        nodes.surveyNext.disabled = !SurveyUI.getStepValidity();
+        return;
+      }
+
+      stage.querySelectorAll('.inv-pct').forEach((pctInput) => {
+        const fieldIndex = Number(pctInput.dataset.index);
+        if (fieldIndex === idx) return;
+        pctInput.value = formatPercentForInput(values.investments[fieldIndex].targetPercent);
+      });
+      nodes.surveyNext.disabled = !SurveyUI.getStepValidity();
+    }));
+
+    stage.querySelectorAll('.inv-pct').forEach((input) => input.addEventListener('blur', (event) => {
+      const idx = Number(event.target.dataset.index);
+      values.investments[idx].percentInput = formatPercentForInput(values.investments[idx].targetPercent);
+      event.target.value = values.investments[idx].percentInput;
     }));
 
     stage.querySelectorAll('.inv-existing').forEach((input) => input.addEventListener('input', (event) => {
@@ -1000,8 +1014,13 @@ const SurveyUI = {
       addBtn.addEventListener('click', () => {
         if (values.investments.length >= 20) return;
         const n = values.investments.length + 1;
-        values.investments.push({ name: '', targetPercent: 100 / n, existingAmount: 0 });
-        values.investments.forEach((item) => { item.targetPercent = 100 / n; });
+        values.investments.push(buildSurveyInvestment('', 100 / n, 0));
+        values.investments.forEach((item) => {
+          item.percentManual = false;
+          item.targetPercent = 100 / n;
+          item.percentInput = formatPercentForInput(item.targetPercent);
+        });
+        autoDistributeAll(values.investments);
         SurveyUI.renderSurvey({ animate: false });
       });
     }
@@ -1038,7 +1057,13 @@ const SurveyUI = {
 
     if (state.survey.step === 3) {
       const named = values.investments
-        .map((item) => ({ ...item, name: item.name.trim(), existingAmount: Math.max(0, Number(item.existingAmount || 0)) }))
+        .map((item) => ({
+          name: item.name.trim(),
+          crateId: item.crateId,
+          targetPercent: Number(item.targetPercent || 0),
+          existingAmount: Math.max(0, Number(item.existingAmount || 0)),
+          filled: item.filled
+        }))
         .filter((item) => item.name);
       if (named.length < 2 || named.length > 20) return void (nodes.surveyError.textContent = 'Add between 2 and 20 investment names.');
       const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
