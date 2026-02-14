@@ -2,6 +2,7 @@ import { computeCrateLayout } from './crateLayoutEngine.js';
 import { createStackSelector } from './stackSelector.js';
 import { createStackCarousel } from './stackCarousel.js';
 import { createPortfolioSettings } from './portfolioSettings.js';
+import { getQuickProgressReport } from './moneyEngine.js';
 import {
   autoDistributeAll,
   buildSurveyInvestment,
@@ -1168,7 +1169,7 @@ function render() {
   if (state.activeSettings) {
     nodes.customStackWorkspace.classList.add('hidden');
     nodes.portfolioSettingsView.classList.remove('hidden');
-    portfolioSettingsUI.load(selected);
+    portfolioSettingsUI.load(selected, getQuickProgressReport(selected));
   } else {
     nodes.portfolioSettingsView.classList.add('hidden');
     nodes.customStackWorkspace.classList.remove('hidden');

@@ -1,8 +1,12 @@
+import { createPortfolioQuickReport } from './portfolioQuickReport.js';
+
 export function createPortfolioSettings({ rootNode, saveNode, cancelNode, deleteNode, addInvestmentNode, onSave, onCancel, onDeleteRequested, monthlyOptions }) {
   const nameInput = rootNode.querySelector('#portfolioSettingsName');
   const monthlySelect = rootNode.querySelector('#portfolioSettingsMonthly');
   const investmentsNode = rootNode.querySelector('#portfolioSettingsInvestments');
   const errorNode = rootNode.querySelector('#portfolioSettingsError');
+  const quickReportNode = rootNode.querySelector('#portfolioQuickReport');
+  const quickReport = createPortfolioQuickReport(quickReportNode);
 
   monthlySelect.innerHTML = monthlyOptions
     .map((amount) => `<option value="${amount}">$${amount.toLocaleString()}</option>`)
@@ -78,7 +82,7 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
   });
 
   return {
-    load(portfolio) {
+    load(portfolio, report) {
       draft = {
         stackId: portfolio.stackId,
         stackName: portfolio.stackName,
@@ -93,6 +97,7 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
       errorNode.textContent = '';
       nameInput.value = draft.stackName;
       monthlySelect.value = String(draft.monthlyContribution);
+      quickReport.render(report);
       renderInvestments();
     }
   };
