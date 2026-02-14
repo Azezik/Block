@@ -338,6 +338,23 @@ function getOrCreateCardAtIndex(portfolio, cardIndex) {
   return portfolio.stackCards[cardIndex];
 }
 
+function findEarliestCardWithCrateCapacity(portfolio, crateId) {
+  const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
+  portfolio.blockValue = blockValue;
+
+  for (let cardIndex = 0; cardIndex < portfolio.stackCards.length; cardIndex += 1) {
+    const card = portfolio.stackCards[cardIndex];
+    const crate = card.crates.find((entry) => entry.crateId === crateId);
+    if (!crate) continue;
+
+    crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * blockValue));
+    const maxValue = crate.slotTarget * blockValue;
+    if ((maxValue - crate.valueDollars) > 0.000001) return cardIndex;
+  }
+
+  return Math.max(0, portfolio.stackCards.length - 1);
+}
+
 function applyValueToCrateWithRollover(portfolio, crateId, amountDollars, startCardIndex = portfolio.activeCardIndex) {
   const amount = Number(amountDollars);
   if (!Number.isFinite(amount) || amount <= 0) return { applied: false, lastTouchedCardIndex: Math.max(0, Number(startCardIndex || 0)) };
@@ -374,17 +391,9 @@ function applyValueToCrateWithRollover(portfolio, crateId, amountDollars, startC
   return { applied: true, lastTouchedCardIndex };
 }
 
-function findFirstCardWithCrateCapacity(portfolio, crateId) {
-  const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
-  for (let cardIndex = 0; cardIndex < portfolio.stackCards.length; cardIndex += 1) {
-    const card = portfolio.stackCards[cardIndex];
-    const crate = card.crates.find((entry) => entry.crateId === crateId);
-    if (!crate) continue;
-    crate.valueDollars = Math.max(0, Number(crate.valueDollars || (crate.filled || 0) * blockValue));
-    const maxValue = crate.slotTarget * blockValue;
-    if ((maxValue - crate.valueDollars) > 0.000001) return cardIndex;
-  }
-  return Math.max(0, portfolio.stackCards.length - 1);
+function placeBlockInCrateSequentially(portfolio, crateId, amountDollars) {
+  const startCardIndex = findEarliestCardWithCrateCapacity(portfolio, crateId);
+  return applyValueToCrateWithRollover(portfolio, crateId, amountDollars, startCardIndex);
 }
 
 function isStackCardFull(card, blockValue) {
@@ -621,8 +630,7 @@ const StackEngine = {
       const template = stack.cratesTemplate.find((entry) => entry.crateId === overflowCrate.crateId);
       const rate = Math.max(0, Number(template?.overflowRatePerMinute ?? overflowCrate.ratePerMinute ?? 1));
       const growthDollars = rate * blockValue * (TICK_MS / 60000);
-      const startCardIndex = findFirstCardWithCrateCapacity(stack, overflowCrate.crateId);
-      const result = applyValueToCrateWithRollover(stack, overflowCrate.crateId, growthDollars, startCardIndex);
+      const result = placeBlockInCrateSequentially(stack, overflowCrate.crateId, growthDollars);
       overflowCrate.cursorCardIndex = result.lastTouchedCardIndex;
     });
     checkAndAdvanceCompletedCard(stack);
@@ -631,7 +639,7 @@ const StackEngine = {
   allocateBlockToCrate(portfolio, crateId) {
     const activeCard = getActiveStackCard(portfolio);
     if (!activeCard || portfolio.waitingRoomBlocks <= 0) return false;
-    if (!applyValueToCrateWithRollover(portfolio, crateId, portfolio.blockValue, portfolio.activeCardIndex).applied) return false;
+    if (!placeBlockInCrateSequentially(portfolio, crateId, portfolio.blockValue).applied) return false;
     portfolio.waitingRoomBlocks -= 1;
     updateMoneyEngineCrateTotals(portfolio, crateId, portfolio.blockValue);
     const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
