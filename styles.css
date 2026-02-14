@@ -148,15 +148,15 @@ body {
   min-height: 220px;
   display: flex;
   flex-direction: column;
+  align-items: center;
 }
 
-.crate-header { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 0.6rem; font-size: 0.9rem; }
+.crate-header { width: 100%; display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 0.6rem; font-size: 0.9rem; }
 .slots {
   display: grid;
   gap: 0.35rem;
-  grid-template-columns: repeat(var(--grid-size, 1), minmax(0, 1fr));
-  grid-template-rows: repeat(var(--grid-size, 1), minmax(0, 1fr));
-  flex: 1;
+  justify-content: center;
+  align-content: center;
 }
 
 .slot { aspect-ratio: 1 / 1; border-radius: 7px; border: 1px solid #334155; background: var(--slot); }
@@ -254,15 +254,11 @@ body {
 }
 
 
-.stack-layers {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(22px, 1fr));
-  grid-auto-rows: 1fr;
-  align-items: end;
-  min-height: 120px;
+.crate-layout-grid {
+  margin: 0 auto;
 }
 
-.layer-slot {
+.crate-cell {
   position: relative;
   overflow: hidden;
 }
@@ -295,6 +291,7 @@ body {
 }
 
 .crate-meta {
+  width: 100%;
   margin: 0.5rem 0 0;
   color: #cbd5e1;
   font-size: 0.8rem;
