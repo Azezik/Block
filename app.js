@@ -52,6 +52,10 @@ const nodes = {
   surveyQuestion: document.getElementById('surveyQuestion'),
   surveyContent: document.getElementById('surveyContent'),
   surveyError: document.getElementById('surveyError'),
+  surveyStepLabel: document.getElementById('surveyStepLabel'),
+  surveyProgressFill: document.getElementById('surveyProgressFill'),
+  surveyClose: document.getElementById('surveyClose'),
+  surveyCancel: document.getElementById('surveyCancel'),
   surveyBack: document.getElementById('surveyBack'),
   surveyNext: document.getElementById('surveyNext'),
   crateTemplate: document.getElementById('crateTemplate')
@@ -544,10 +548,16 @@ function renderDemo() {
   });
 }
 
+const SURVEY_TOTAL_STEPS = 4;
+const SURVEY_TRANSITION_MS = 280;
+
 const SurveyUI = {
+  lastRenderedStep: 1,
+
   openCreateSurvey() {
     state.survey = { open: true, mode: 'create', step: 1, editingId: null, values: getEmptySurveyValues() };
-    SurveyUI.renderSurvey();
+    SurveyUI.lastRenderedStep = 1;
+    SurveyUI.renderSurvey({ animate: false });
   },
 
   openEditSurvey() {
@@ -569,63 +579,146 @@ const SurveyUI = {
         }))
       }
     };
+    SurveyUI.lastRenderedStep = 1;
+    SurveyUI.renderSurvey({ animate: false });
+  },
+
+  cancelSurvey() {
+    state.survey.open = false;
+    nodes.surveyModal.classList.add('hidden');
+    render();
+  },
+
+  goBack() {
+    if (state.survey.step <= 1) return SurveyUI.cancelSurvey();
+    state.survey.step -= 1;
     SurveyUI.renderSurvey();
   },
 
-  renderSurvey() {
+  getStepValidity() {
     const values = state.survey.values;
-    nodes.surveyModal.classList.toggle('hidden', !state.survey.open);
-    nodes.surveyError.textContent = '';
-    nodes.surveyBack.style.visibility = state.survey.step === 1 ? 'hidden' : 'visible';
-    nodes.surveyNext.textContent = state.survey.step === 4 ? 'Save Stack' : 'Save / Continue';
 
     if (state.survey.step === 1) {
-      nodes.surveyQuestion.textContent = 'What would you like to name this stack?';
-      nodes.surveyContent.innerHTML = `<input id="stackNameInput" class="field" type="text" value="${values.stackName}">`;
-      return;
+      return Boolean((values.stackName || '').trim());
     }
 
     if (state.survey.step === 2) {
-      const presets = MONTHLY_BUDGET_OPTIONS.map((amount) => `<button class="preset ${values.monthlyContribution === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`).join('');
-      nodes.surveyQuestion.textContent = 'How much can you save per month?';
-      nodes.surveyContent.innerHTML = `<div class="preset-wrap">${presets}</div><p class="survey-note">1 block mints each simulator month. Block value matches your monthly savings.</p>`;
-      nodes.surveyContent.querySelectorAll('.preset').forEach((btn) => btn.addEventListener('click', () => { values.monthlyContribution = Number(btn.dataset.amount); SurveyUI.renderSurvey(); }));
-      return;
+      return MONTHLY_BUDGET_OPTIONS.includes(values.monthlyContribution);
     }
 
     if (state.survey.step === 3) {
-      nodes.surveyQuestion.textContent = 'Add your investments and target % (2-20).';
-      nodes.surveyContent.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${Number(row.targetPercent || 0).toFixed(1)}"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
-      nodes.surveyContent.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
-        values.investments[Number(event.target.dataset.index)].name = event.target.value;
-      }));
-      nodes.surveyContent.querySelectorAll('.inv-pct').forEach((input) => input.addEventListener('input', (event) => {
-        const idx = Number(event.target.dataset.index);
-        normalizePercentDraft(values.investments, idx, Number(event.target.value));
-        SurveyUI.renderSurvey();
-      }));
-      const addBtn = document.getElementById('addInvestment');
-      if (addBtn) {
-        addBtn.addEventListener('click', () => {
-          if (values.investments.length >= 20) return;
-          const n = values.investments.length + 1;
-          values.investments.push({ name: '', targetPercent: 100 / n });
-          values.investments.forEach((item) => { item.targetPercent = 100 / n; });
-          SurveyUI.renderSurvey();
-        });
-      }
-      return;
+      const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+      if (named.length < 2 || named.length > 20) return false;
+      const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
+      return Math.abs(totalPercent - 100) <= 0.01;
     }
 
-    const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
-    const tempStack = StackRules.normalizeStackDraft({
-      stackName: values.stackName,
-      monthlyContribution: values.monthlyContribution,
-      investments: named
-    });
+    return true;
+  },
 
-    nodes.surveyQuestion.textContent = 'Confirm full stack layout';
-    nodes.surveyContent.innerHTML = `<p class="survey-note">Full stack requires ${tempStack.fullStackSize} blocks.</p><p class="survey-note">Block value: $${tempStack.blockValue.toLocaleString()}</p><div>${tempStack.crates.map((crate) => `<p class="survey-note"><strong>${crate.name}</strong> · Requested ${crate.requestedPercent.toFixed(1)}% → Slots: ${crate.slotTarget}</p>`).join('')}</div>`;
+  updateWizardChrome() {
+    nodes.surveyModal.classList.toggle('hidden', !state.survey.open);
+    nodes.surveyBack.style.visibility = state.survey.step === 1 ? 'hidden' : 'visible';
+    nodes.surveyNext.textContent = state.survey.step === SURVEY_TOTAL_STEPS ? 'Save Stack' : 'Continue';
+    nodes.surveyStepLabel.textContent = `Step ${state.survey.step} of ${SURVEY_TOTAL_STEPS}`;
+    nodes.surveyProgressFill.style.width = `${(state.survey.step / SURVEY_TOTAL_STEPS) * 100}%`;
+    nodes.surveyNext.disabled = !SurveyUI.getStepValidity();
+  },
+
+  renderSurvey(options = {}) {
+    const { animate = true } = options;
+    const values = state.survey.values;
+    nodes.surveyError.textContent = '';
+    SurveyUI.updateWizardChrome();
+
+    const stage = document.createElement('div');
+    stage.className = 'survey-stage';
+
+    if (state.survey.step === 1) {
+      nodes.surveyQuestion.textContent = 'What would you like to name this stack?';
+      stage.innerHTML = `<input id="stackNameInput" class="field" type="text" value="${values.stackName}" autocomplete="off" placeholder="My Long-Term Stack">`;
+    } else if (state.survey.step === 2) {
+      const presets = MONTHLY_BUDGET_OPTIONS.map((amount) => `<button class="preset ${values.monthlyContribution === amount ? 'selected' : ''}" data-amount="${amount}" type="button">$${amount.toLocaleString()}</button>`).join('');
+      nodes.surveyQuestion.textContent = 'How much can you save per month?';
+      stage.innerHTML = `<div class="preset-wrap">${presets}</div><p class="survey-note">1 block mints each simulator month. Block value matches your monthly savings.</p>`;
+    } else if (state.survey.step === 3) {
+      nodes.surveyQuestion.textContent = 'Add your investments and target % (2-20).';
+      stage.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${Number(row.targetPercent || 0).toFixed(1)}"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
+    } else {
+      const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+      const tempStack = StackRules.normalizeStackDraft({
+        stackName: values.stackName,
+        monthlyContribution: values.monthlyContribution,
+        investments: named
+      });
+
+      nodes.surveyQuestion.textContent = 'Confirm full stack layout';
+      stage.innerHTML = `<p class="survey-note">Full stack requires ${tempStack.fullStackSize} blocks.</p><p class="survey-note">Block value: $${tempStack.blockValue.toLocaleString()}</p><div>${tempStack.crates.map((crate) => `<p class="survey-note"><strong>${crate.name}</strong> · Requested ${crate.requestedPercent.toFixed(1)}% → Slots: ${crate.slotTarget}</p>`).join('')}</div>`;
+    }
+
+    const current = nodes.surveyContent.querySelector('.survey-stage');
+    const stepDelta = state.survey.step - SurveyUI.lastRenderedStep;
+
+    if (current && animate) {
+      current.classList.add('is-exiting');
+      stage.classList.add('is-entering');
+      nodes.surveyContent.appendChild(stage);
+      requestAnimationFrame(() => stage.classList.remove('is-entering'));
+      setTimeout(() => current.remove(), SURVEY_TRANSITION_MS);
+    } else {
+      nodes.surveyContent.innerHTML = '';
+      nodes.surveyContent.appendChild(stage);
+    }
+
+    SurveyUI.lastRenderedStep = state.survey.step;
+
+    const nameInput = stage.querySelector('#stackNameInput');
+    if (nameInput) {
+      nameInput.focus();
+      nameInput.setSelectionRange(nameInput.value.length, nameInput.value.length);
+      nameInput.addEventListener('input', (event) => {
+        values.stackName = event.target.value;
+        nodes.surveyNext.disabled = !SurveyUI.getStepValidity();
+      });
+    }
+
+    stage.querySelectorAll('.preset').forEach((btn) => btn.addEventListener('click', () => {
+      values.monthlyContribution = Number(btn.dataset.amount);
+      SurveyUI.renderSurvey({ animate: false });
+    }));
+
+    stage.querySelectorAll('.inv-name').forEach((input) => input.addEventListener('input', (event) => {
+      values.investments[Number(event.target.dataset.index)].name = event.target.value;
+      nodes.surveyNext.disabled = !SurveyUI.getStepValidity();
+    }));
+
+    stage.querySelectorAll('.inv-pct').forEach((input) => input.addEventListener('input', (event) => {
+      const idx = Number(event.target.dataset.index);
+      normalizePercentDraft(values.investments, idx, Number(event.target.value));
+      SurveyUI.renderSurvey({ animate: false });
+    }));
+
+    const addBtn = stage.querySelector('#addInvestment');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        if (values.investments.length >= 20) return;
+        const n = values.investments.length + 1;
+        values.investments.push({ name: '', targetPercent: 100 / n });
+        values.investments.forEach((item) => { item.targetPercent = 100 / n; });
+        SurveyUI.renderSurvey({ animate: false });
+      });
+    }
+
+    if (animate && stepDelta < 0 && current) {
+      stage.style.transform = 'translateX(-20px) scale(0.98)';
+      stage.style.opacity = '0';
+      requestAnimationFrame(() => {
+        stage.style.transform = '';
+        stage.style.opacity = '';
+      });
+    }
+
+    nodes.surveyNext.disabled = !SurveyUI.getStepValidity();
   },
 
   validateAndAdvanceSurvey() {
@@ -691,6 +784,7 @@ const SurveyUI = {
     state.selectedCustomStackId = built.stackId;
     saveAllCustomStacks();
     state.survey.open = false;
+    nodes.surveyModal.classList.add('hidden');
     render();
   }
 };
@@ -728,12 +822,27 @@ nodes.tabDemo.addEventListener('click', () => setTab('demo'));
 nodes.tabMyStacks.addEventListener('click', () => setTab('my-stacks'));
 nodes.createStackBtn.addEventListener('click', openCreateSurvey);
 nodes.editStackBtn.addEventListener('click', openEditSurvey);
-nodes.surveyBack.addEventListener('click', () => {
-  if (state.survey.step <= 1) return;
-  state.survey.step -= 1;
-  SurveyUI.renderSurvey();
+nodes.surveyClose.addEventListener('click', () => SurveyUI.cancelSurvey());
+nodes.surveyCancel.addEventListener('click', (event) => {
+  event.preventDefault();
+  SurveyUI.cancelSurvey();
 });
+nodes.surveyBack.addEventListener('click', () => SurveyUI.goBack());
 nodes.surveyNext.addEventListener('click', () => SurveyUI.validateAndAdvanceSurvey());
+
+document.addEventListener('keydown', (event) => {
+  if (!state.survey.open) return;
+
+  if (event.key === 'Enter' && SurveyUI.getStepValidity()) {
+    event.preventDefault();
+    SurveyUI.validateAndAdvanceSurvey();
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    SurveyUI.goBack();
+  }
+});
 
 state.customRuntimes = StackStorage.loadStacks();
 if (state.customRuntimes[0]) state.selectedCustomStackId = state.customRuntimes[0].stackId;
