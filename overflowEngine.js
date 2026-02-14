@@ -2,7 +2,8 @@ export function createOverflowEngineState(crates = []) {
   return {
     crates: crates.map((crate) => ({
       crateId: crate.crateId,
-      ratePerMinute: Math.max(0, Number(crate.overflowRatePerMinute || 1))
+      ratePerMinute: Math.max(0, Number(crate.overflowRatePerMinute || 1)),
+      cursorCardIndex: 0
     }))
   };
 }
@@ -17,7 +18,8 @@ export function ensureOverflowEngineCrates(overflowEngine, cratesTemplate = []) 
     const existing = byCrateId.get(template.crateId);
     return {
       crateId: template.crateId,
-      ratePerMinute: Math.max(0, Number(existing?.ratePerMinute ?? template.overflowRatePerMinute ?? 1))
+      ratePerMinute: Math.max(0, Number(existing?.ratePerMinute ?? template.overflowRatePerMinute ?? 1)),
+      cursorCardIndex: Math.max(0, Number(existing?.cursorCardIndex || 0))
     };
   });
 
