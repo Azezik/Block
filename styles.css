@@ -698,3 +698,43 @@ body.modal-open {
   color: #f8fafc;
   font-weight: 700;
 }
+
+.overflow-block {
+  border-color: #dc2626;
+  background: linear-gradient(145deg, #f87171, #dc2626);
+  color: #fff1f2;
+}
+
+.overflow-loading {
+  display: grid;
+  place-items: center;
+  color: #fff1f2;
+  font-size: 0.58rem;
+  text-align: center;
+  padding: 0.1rem;
+}
+
+.overflow-fill {
+  display: grid;
+  place-items: center;
+  color: #fff1f2;
+  font-size: 0.58rem;
+  text-align: center;
+  padding: 0.1rem;
+}
+
+.trade-log-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.trade-log-item {
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+#portfolioSettingsInvestments .investment-row {
+  grid-template-columns: 1fr 120px 140px 140px;
+}

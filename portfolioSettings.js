@@ -53,6 +53,10 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
         onExistingAmountInput: (event) => {
           const eventIndex = Number(event.target.dataset.index);
           draft.investments[eventIndex].existingAmount = Math.max(0, Number(event.target.value || 0));
+        },
+        onOverflowRateInput: (event) => {
+          const eventIndex = Number(event.target.dataset.index);
+          draft.investments[eventIndex].overflowRatePerMinute = Math.max(0, Number(event.target.value || 0));
         }
       });
       investmentsNode.appendChild(row);
@@ -77,7 +81,7 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
   addInvestmentNode.addEventListener('click', () => {
     if (draft.investments.length >= 20) return;
     const next = draft.investments.length + 1;
-    draft.investments.push({ name: '', targetPercent: 100 / next, existingAmount: 0 });
+    draft.investments.push({ name: '', targetPercent: 100 / next, existingAmount: 0, overflowRatePerMinute: 1 });
     draft.investments.forEach((item) => { item.targetPercent = 100 / next; });
     renderInvestments();
   });
@@ -96,7 +100,8 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, delete
             suggestedExistingAmountsByCrateId.get(crate.crateId)
             ?? crate.existingAmount
             ?? 0
-          ))
+          )),
+          overflowRatePerMinute: Math.max(0, Number(crate.overflowRatePerMinute ?? 1))
         }))
       };
       errorNode.textContent = '';
