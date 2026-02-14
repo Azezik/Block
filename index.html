@@ -61,18 +61,9 @@
           </section>
 
           <section id="customStackWorkspace" class="hidden">
-            <div id="stackCarouselShell" class="carousel-shell">
-              <button id="stackPrevBtn" class="icon-btn" type="button" aria-label="Previous stack">‹</button>
-              <div class="stack-carousel-window">
-                <div id="stackCarouselTrack" class="stack-carousel-track"></div>
-              </div>
-              <button id="stackNextBtn" class="icon-btn" type="button" aria-label="Next stack">›</button>
-            </div>
-            <p id="stackCardMeta" class="hint"></p>
             <section class="cash-panel card">
               <div class="month-pill" id="customMonthIndicator">Simulator Month 1</div>
               <div class="stack-stats">
-                <p>Current cycle fill: <strong id="customStackFill">0 / 0</strong></p>
                 <p>Completed stacks: <strong id="customCompletedStacks">0</strong></p>
                 <p>Waiting Room blocks: <strong id="customWaitingRoomCount">0</strong></p>
                 <p>Cash balance: <strong id="customCashBalance">$0.00</strong></p>
@@ -97,9 +88,25 @@
             </section>
 
             <section class="board card">
-              <div class="stacks-list-header">
-                <h2 id="customBoardTitle">Investment Crates</h2>
-                <button id="editStackBtn" class="btn" type="button">Edit Stack</button>
+              <div class="crate-header-bar">
+                <div class="crate-header-text">
+                  <h2 id="customBoardTitle">TFSA Investment Crates</h2>
+                  <div class="crate-subheader">
+                    <span id="stackCardMeta">Stack 1</span>
+                    <span aria-hidden="true">·</span>
+                    <span id="customStackFill">0 / 0 slots filled</span>
+                  </div>
+                </div>
+                <div class="crate-header-actions">
+                  <div id="stackNavShell" class="stack-nav-controls">
+                    <button id="stackPrevBtn" class="icon-btn" type="button" aria-label="Previous stack">‹</button>
+                    <button id="stackNextBtn" class="icon-btn" type="button" aria-label="Next stack">›</button>
+                  </div>
+                  <button id="editStackBtn" class="btn" type="button">Edit Stack</button>
+                </div>
+              </div>
+              <div class="stack-carousel-window sr-only" aria-hidden="true">
+                <div id="stackCarouselTrack" class="stack-carousel-track"></div>
               </div>
               <div id="customCrateGrid" class="crate-grid"></div>
             </section>

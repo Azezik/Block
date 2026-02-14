@@ -51,7 +51,7 @@ const nodes = {
   customAvailableBlocks: document.getElementById('customAvailableBlocks'),
   customCrateGrid: document.getElementById('customCrateGrid'),
   customStackWorkspace: document.getElementById('customStackWorkspace'),
-  stackCarouselShell: document.getElementById('stackCarouselShell'),
+  stackNavShell: document.getElementById('stackNavShell'),
   customCashTitle: document.getElementById('customCashTitle'),
   customBoardTitle: document.getElementById('customBoardTitle'),
   customStackFill: document.getElementById('customStackFill'),
@@ -768,13 +768,11 @@ const Renderer = {
     nodes.customCashStatus.textContent = portfolio.waitingRoomBlocks > 0
       ? `${portfolio.waitingRoomBlocks} Waiting Room Block${portfolio.waitingRoomBlocks > 1 ? 's' : ''}`
       : `Cash balance: $${portfolio.cashBalance.toFixed(2)}`;
-    nodes.customStackFill.textContent = `${filledSlots} / ${totalSlots}`;
+    nodes.customStackFill.textContent = `${filledSlots} / ${totalSlots} slots filled`;
     nodes.customWaitingRoomCount.textContent = `${portfolio.waitingRoomBlocks}`;
     nodes.customCashBalance.textContent = `$${portfolio.cashBalance.toFixed(2)}`;
     nodes.customCompletedStacks.textContent = `${portfolio.completedStacks}`;
-    nodes.stackCardMeta.textContent = editable
-      ? `Stack ${cardIndex + 1} of ${portfolio.stackCards.length} (active)`
-      : `Stack ${cardIndex + 1} of ${portfolio.stackCards.length} (completed snapshot)`;
+    nodes.stackCardMeta.textContent = `Stack ${cardIndex + 1}`;
 
     Renderer.renderUnallocatedBlocks(portfolio, editable);
     Renderer.renderCrates(card.crates, portfolio, editable);
@@ -1175,10 +1173,8 @@ function render() {
     nodes.portfolioSettingsView.classList.add('hidden');
     nodes.customStackWorkspace.classList.remove('hidden');
     nodes.customCashTitle.textContent = `${selected.stackName} Waiting Room`;
-    nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
-
     const hasStackHistory = selected.stackCards.length > 1;
-    nodes.stackCarouselShell.classList.toggle('hidden', !hasStackHistory);
+    nodes.stackNavShell.classList.toggle('hidden', !hasStackHistory);
     stackCarouselUI.setCards(selected.stackCards, selected.activeCardIndex || 0);
     const card = getActiveStackCard(selected);
     if (card) Renderer.renderStackView(selected, card, selected.activeCardIndex || 0);
