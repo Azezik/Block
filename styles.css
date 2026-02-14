@@ -129,6 +129,11 @@ body.modal-open {
   align-items: center;
 }
 
+.available-blocks-dropzone.over {
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+}
+
 .block {
   width: 56px;
   height: 56px;
