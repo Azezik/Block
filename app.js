@@ -102,6 +102,34 @@ const nodes = {
   crateTemplate: document.getElementById('crateTemplate')
 };
 
+let activeCustomDragPayload = null;
+
+function parseDragPayload(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readDragPayload(event) {
+  const rawPayload = event?.dataTransfer?.getData('text/plain');
+  return parseDragPayload(rawPayload) || activeCustomDragPayload;
+}
+
+function bindDragPayload(draggableNode, payload) {
+  draggableNode.addEventListener('dragstart', (event) => {
+    activeCustomDragPayload = payload;
+    event.dataTransfer.setData('text/plain', JSON.stringify(payload));
+    event.dataTransfer.effectAllowed = 'move';
+  });
+  draggableNode.addEventListener('dragend', () => {
+    activeCustomDragPayload = null;
+  });
+}
+
 function normalizeBlockValue(value) {
   const parsed = Number(value);
   if (Number.isFinite(parsed) && parsed > 0) return parsed;
@@ -871,19 +899,22 @@ const Renderer = {
     nodes.customAvailableBlocks.innerHTML = '';
     if (editable) {
       nodes.customAvailableBlocks.ondragover = (event) => {
-        const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
-        if (payload.type !== 'full-block') return;
+        const payload = readDragPayload(event);
+        if (payload?.type !== 'full-block') return;
         event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
         nodes.customAvailableBlocks.classList.add('over');
       };
       nodes.customAvailableBlocks.ondragleave = () => {
         nodes.customAvailableBlocks.classList.remove('over');
       };
       nodes.customAvailableBlocks.ondrop = (event) => {
-        const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
-        nodes.customAvailableBlocks.classList.remove('over');
-        if (payload.type !== 'full-block') return;
         event.preventDefault();
+        event.stopPropagation();
+        const payload = readDragPayload(event);
+        activeCustomDragPayload = null;
+        nodes.customAvailableBlocks.classList.remove('over');
+        if (payload?.type !== 'full-block') return;
         const ok = StackEngine.sellBlockToWaitingRoom(portfolio, payload.fromCrateId);
         if (!ok) flashCrateFull(nodes.customAvailableBlocks);
         saveAllCustomStacks();
@@ -902,9 +933,7 @@ const Renderer = {
       block.draggable = editable;
       block.textContent = `$${portfolio.blockValue.toLocaleString()}`;
       if (editable) {
-        block.addEventListener('dragstart', (event) => {
-          event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'cash' }));
-        });
+        bindDragPayload(block, { type: 'cash' });
       }
       nodes.customAvailableBlocks.appendChild(block);
     }
@@ -930,9 +959,7 @@ const Renderer = {
         if (!editable) return;
         if (slot.type === 'cash') {
           fillNode.draggable = true;
-          fillNode.addEventListener('dragstart', (event) => {
-            event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'full-block', fromCrateId: crate.crateId }));
-          });
+          bindDragPayload(fillNode, { type: 'full-block', fromCrateId: crate.crateId });
         }
       });
 
@@ -944,17 +971,21 @@ const Renderer = {
 
       if (editable) {
         node.addEventListener('dragover', (event) => {
+          const payload = readDragPayload(event);
+          if (!payload || (payload.type !== 'cash' && payload.type !== 'full-block')) return;
           event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
           node.classList.add('over');
         });
         node.addEventListener('dragleave', () => node.classList.remove('over'));
         node.addEventListener('drop', (event) => {
           event.preventDefault();
           node.classList.remove('over');
-          const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+          const payload = readDragPayload(event);
+          activeCustomDragPayload = null;
           let ok = false;
-          if (payload.type === 'cash') ok = StackEngine.allocateBlockToCrate(portfolio, crate.crateId);
-          if (payload.type === 'full-block') ok = StackEngine.moveFullBlock(portfolio, payload.fromCrateId, crate.crateId);
+          if (payload?.type === 'cash') ok = StackEngine.allocateBlockToCrate(portfolio, crate.crateId);
+          if (payload?.type === 'full-block') ok = StackEngine.moveFullBlock(portfolio, payload.fromCrateId, crate.crateId);
           if (!ok) flashCrateFull(node);
           saveAllCustomStacks();
           render();
