@@ -2,6 +2,10 @@ export function createStackSelector({ buttonNode, menuNode, onSelect }) {
   let portfolios = [];
   let selectedId = null;
 
+  function isMenuOpen() {
+    return !menuNode.classList.contains('hidden');
+  }
+
   function closeMenu() {
     menuNode.classList.add('hidden');
     buttonNode.setAttribute('aria-expanded', 'false');
@@ -35,22 +39,39 @@ export function createStackSelector({ buttonNode, menuNode, onSelect }) {
   }
 
   buttonNode.addEventListener('click', () => {
-    if (menuNode.classList.contains('hidden')) openMenu();
+    if (!isMenuOpen()) openMenu();
     else closeMenu();
   });
 
-  document.addEventListener('click', (event) => {
-    if (!menuNode.classList.contains('hidden') && !menuNode.contains(event.target) && event.target !== buttonNode) {
+  document.addEventListener('pointerdown', (event) => {
+    if (!isMenuOpen()) return;
+
+    if (!menuNode.contains(event.target) && !buttonNode.contains(event.target)) {
       closeMenu();
     }
   });
 
+  document.addEventListener('keydown', (event) => {
+    if (!isMenuOpen()) return;
+    if (event.key !== 'Escape') return;
+    closeMenu();
+    buttonNode.focus();
+  });
+
   return {
     setData(nextPortfolios, nextSelectedId) {
+      const wasOpen = isMenuOpen();
       portfolios = nextPortfolios;
       selectedId = nextSelectedId;
       render();
-      closeMenu();
+
+      if (portfolios.length <= 1) {
+        closeMenu();
+        return;
+      }
+
+      if (wasOpen) openMenu();
+      else closeMenu();
     },
     closeMenu
   };
