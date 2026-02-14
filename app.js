@@ -9,6 +9,7 @@ const STORAGE_KEY = 'block.custom.stacks.v6';
 const LEGACY_STORAGE_KEY = 'block.custom.stacks.v3';
 const MONTHLY_BUDGET_OPTIONS = [100, 250, 500, 750, 1000];
 const MAX_STACK_SLOTS = 24;
+const MIN_STACK_SLOTS = 10;
 
 const initialDemoCrates = [
   { name: 'HDIV', capacity: 6, blocksFilled: 0 },
@@ -156,7 +157,15 @@ function computeSlotTargets(crates) {
     }
   }
 
-  return best || { totalSlots: crateCount, slots: Array(crateCount).fill(1) };
+  const selected = best || { totalSlots: crateCount, slots: Array(crateCount).fill(1), adjustments: 0, error: 0 };
+  if (selected.totalSlots >= MIN_STACK_SLOTS) return selected;
+
+  const multiplier = Math.ceil(MIN_STACK_SLOTS / selected.totalSlots);
+  return {
+    ...selected,
+    totalSlots: selected.totalSlots * multiplier,
+    slots: selected.slots.map((slot) => slot * multiplier)
+  };
 }
 
 function calculateTargets(stack) {
