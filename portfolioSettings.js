@@ -67,7 +67,7 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, addInv
   addInvestmentNode.addEventListener('click', () => {
     if (draft.investments.length >= 20) return;
     const next = draft.investments.length + 1;
-    draft.investments.push({ name: '', targetPercent: 100 / next });
+    draft.investments.push({ name: '', targetPercent: 100 / next, existingAmount: 0 });
     draft.investments.forEach((item) => { item.targetPercent = 100 / next; });
     renderInvestments();
   });
@@ -81,7 +81,8 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, addInv
         investments: portfolio.cratesTemplate.map((crate) => ({
           crateId: crate.crateId,
           name: crate.name,
-          targetPercent: crate.requestedPercent
+          targetPercent: crate.requestedPercent,
+          existingAmount: Number(crate.existingAmount || 0)
         }))
       };
       errorNode.textContent = '';

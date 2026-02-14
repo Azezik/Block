@@ -191,18 +191,59 @@ function toPortfolioModel(stack) {
     crateId: crate.crateId,
     name: crate.name,
     requestedPercent: crate.requestedPercent,
-    slotTarget: crate.slotTarget
+    slotTarget: crate.slotTarget,
+    existingAmount: Number(crate.existingAmount || 0),
+    startingFilledBlocks: 0,
+    overflowDollars: 0
   }));
-  const firstCard = {
-    cardId: crypto.randomUUID(),
-    crates: normalized.crates.map((crate) => ({
+
+  const moneyEngineCrates = cratesTemplate.map((crate) => {
+    const existingAmount = Number(crate.existingAmount || 0);
+    const startingFilledBlocks = Math.floor(existingAmount / normalized.blockValue);
+    const overflowDollars = existingAmount % normalized.blockValue;
+    crate.startingFilledBlocks = startingFilledBlocks;
+    crate.overflowDollars = overflowDollars;
+    return {
       crateId: crate.crateId,
-      name: crate.name,
-      requestedPercent: crate.requestedPercent,
-      slotTarget: crate.slotTarget,
-      filled: crate.filled
-    }))
-  };
+      existingAmount,
+      startingFilledBlocks,
+      overflowDollars
+    };
+  });
+
+  const stackCards = [];
+  moneyEngineCrates.forEach((moneyState) => {
+    let remainingBlocks = moneyState.startingFilledBlocks;
+    let cardIndex = 0;
+
+    while (remainingBlocks > 0) {
+      if (!stackCards[cardIndex]) {
+        stackCards[cardIndex] = makeStackCardFromTemplate(cratesTemplate);
+      }
+      const targetCrate = stackCards[cardIndex].crates.find((crate) => crate.crateId === moneyState.crateId);
+      if (!targetCrate) break;
+
+      const capacity = Math.max(0, targetCrate.slotTarget - targetCrate.filled);
+      if (capacity <= 0) {
+        cardIndex += 1;
+        continue;
+      }
+
+      const assigned = Math.min(capacity, remainingBlocks);
+      targetCrate.filled += assigned;
+      remainingBlocks -= assigned;
+      cardIndex += 1;
+    }
+  });
+
+  if (!stackCards.length) {
+    stackCards.push(makeStackCardFromTemplate(cratesTemplate));
+  }
+
+  const firstIncompleteCardIndex = stackCards.findIndex((card) => card.crates.some((crate) => crate.filled < crate.slotTarget));
+  const activeCardIndex = firstIncompleteCardIndex >= 0 ? firstIncompleteCardIndex : stackCards.length - 1;
+  const completedStacks = stackCards.filter((card) => card.crates.every((crate) => crate.filled === crate.slotTarget)).length;
+
   return {
     stackId: normalized.stackId,
     stackName: normalized.stackName,
@@ -210,13 +251,17 @@ function toPortfolioModel(stack) {
     blockValue: normalized.blockValue,
     cashBalance: normalized.cashBalance,
     waitingRoomBlocks: normalized.waitingRoomBlocks,
-    completedStacks: normalized.completedStacks,
+    completedStacks,
     monthCounter: normalized.monthCounter,
     elapsedMsInPeriod: normalized.elapsedMsInPeriod,
     fullStackSize: normalized.fullStackSize,
     cratesTemplate,
-    stackCards: [firstCard],
-    activeCardIndex: 0
+    moneyEngine: {
+      blockValue: normalized.blockValue,
+      crates: moneyEngineCrates
+    },
+    stackCards,
+    activeCardIndex
   };
 }
 
@@ -254,7 +299,8 @@ const StackRules = {
           crateId: item.crateId || crypto.randomUUID(),
           name: item.name.trim(),
           requestedPercent: Number(item.targetPercent ?? item.requestedPercent ?? 0),
-          filled: Number(item.filled ?? item.blocksFilled ?? item.plannedBlocksFilled ?? 0)
+          filled: Number(item.filled ?? item.blocksFilled ?? item.plannedBlocksFilled ?? 0),
+          existingAmount: Math.max(0, Number(item.existingAmount || 0))
         }))
         .filter((item) => item.name)
     };
@@ -292,7 +338,8 @@ const StackRules = {
             crateId: crate.crateId || crypto.randomUUID(),
             name: crate.name || 'Investment',
             requestedPercent: Number(crate.requestedPercent ?? crate.targetPercent ?? 0),
-            filled: Number(crate.filled ?? crate.blocksFilled ?? (legacyPlanned + legacyExtra))
+            filled: Number(crate.filled ?? crate.blocksFilled ?? (legacyPlanned + legacyExtra)),
+            existingAmount: Math.max(0, Number(crate.existingAmount || 0))
           };
         })
       };
@@ -324,9 +371,43 @@ const StackStorage = {
       if (!Array.isArray(parsed)) return [];
       return parsed.map((entry) => {
         if (Array.isArray(entry.stackCards) && Array.isArray(entry.cratesTemplate)) {
+          const blockValue = Number(entry.blockValue || entry.monthlyContribution || 100);
+          const cratesTemplate = entry.cratesTemplate.map((crate) => {
+            const existingAmount = Math.max(0, Number(crate.existingAmount || 0));
+            const startingFilledBlocks = Number.isFinite(crate.startingFilledBlocks)
+              ? Math.max(0, Number(crate.startingFilledBlocks))
+              : Math.floor(existingAmount / blockValue);
+            const overflowDollars = Number.isFinite(crate.overflowDollars)
+              ? Math.max(0, Number(crate.overflowDollars))
+              : existingAmount % blockValue;
+            return {
+              ...crate,
+              existingAmount,
+              startingFilledBlocks,
+              overflowDollars
+            };
+          });
+          const moneyEngineCrates = cratesTemplate.map((crate) => ({
+            crateId: crate.crateId,
+            existingAmount: crate.existingAmount,
+            startingFilledBlocks: crate.startingFilledBlocks,
+            overflowDollars: crate.overflowDollars
+          }));
           return {
             ...entry,
+            cratesTemplate,
             activeCardIndex: Number(entry.activeCardIndex || 0),
+            moneyEngine: {
+              blockValue,
+              crates: Array.isArray(entry.moneyEngine?.crates) && entry.moneyEngine.crates.length
+                ? entry.moneyEngine.crates.map((crate) => ({
+                  crateId: crate.crateId,
+                  existingAmount: Math.max(0, Number(crate.existingAmount || 0)),
+                  startingFilledBlocks: Math.max(0, Number(crate.startingFilledBlocks || 0)),
+                  overflowDollars: Math.max(0, Number(crate.overflowDollars || 0))
+                }))
+                : moneyEngineCrates
+            },
             stackCards: entry.stackCards.map((card) => ({
               cardId: card.cardId || crypto.randomUUID(),
               crates: card.crates.map((crate) => ({ ...crate }))
@@ -419,7 +500,7 @@ function getEmptySurveyValues() {
   return {
     stackName: '',
     monthlyContribution: null,
-    investments: [{ name: '', targetPercent: 50 }, { name: '', targetPercent: 50 }]
+    investments: [{ name: '', targetPercent: 50, existingAmount: 0 }, { name: '', targetPercent: 50, existingAmount: 0 }]
   };
 }
 
@@ -476,10 +557,15 @@ const portfolioSettingsUI = createPortfolioSettings({
   onSave: (draft) => {
     const err = StackRules.validateDraft(draft);
     if (err) return err;
-    const rebuilt = StackRules.normalizeStackDraft(draft);
     const idx = state.customRuntimes.findIndex((item) => item.stackId === draft.stackId);
     if (idx < 0) return 'Portfolio not found.';
     const prev = state.customRuntimes[idx];
+    const existingAmountByCrateId = new Map((prev.cratesTemplate || []).map((crate) => [crate.crateId, Number(crate.existingAmount || 0)]));
+    draft.investments = draft.investments.map((investment) => ({
+      ...investment,
+      existingAmount: investment.existingAmount ?? existingAmountByCrateId.get(investment.crateId) ?? 0
+    }));
+    const rebuilt = StackRules.normalizeStackDraft(draft);
     const updated = toPortfolioModel(rebuilt);
     updated.cashBalance = prev.cashBalance;
     updated.waitingRoomBlocks = prev.waitingRoomBlocks;
@@ -719,10 +805,11 @@ const SurveyUI = {
       values: {
         stackName: stack.stackName,
         monthlyContribution: stack.monthlyContribution,
-        investments: stack.crates.map((crate) => ({
+        investments: stack.cratesTemplate.map((crate) => ({
           name: crate.name,
           crateId: crate.crateId,
           targetPercent: crate.requestedPercent,
+          existingAmount: Number(crate.existingAmount || 0),
           filled: crate.filled
         }))
       }
@@ -755,7 +842,9 @@ const SurveyUI = {
     }
 
     if (state.survey.step === 3) {
-      const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+      const named = values.investments
+        .map((item) => ({ ...item, name: item.name.trim(), existingAmount: Math.max(0, Number(item.existingAmount || 0)) }))
+        .filter((item) => item.name);
       if (named.length < 2 || named.length > 20) return false;
       const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
       return Math.abs(totalPercent - 100) <= 0.01;
@@ -790,10 +879,12 @@ const SurveyUI = {
       nodes.surveyQuestion.textContent = 'How much can you save per month?';
       stage.innerHTML = `<div class="preset-wrap">${presets}</div><p class="survey-note">1 block mints each simulator month. Block value matches your monthly savings.</p>`;
     } else if (state.survey.step === 3) {
-      nodes.surveyQuestion.textContent = 'Add your investments and target % (2-20).';
-      stage.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${Number(row.targetPercent || 0).toFixed(1)}"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
+      nodes.surveyQuestion.textContent = 'Add your investments, target %, and existing amount (2-20).';
+      stage.innerHTML = `<div>${values.investments.map((row, idx) => `<div class="investment-row"><input class="field inv-name" data-index="${idx}" type="text" placeholder="Investment name" value="${row.name}"><input class="field inv-pct" data-index="${idx}" type="number" min="0" max="100" step="0.1" value="${Number(row.targetPercent || 0).toFixed(1)}"><input class="field inv-existing" data-index="${idx}" type="number" min="0" step="1" value="${Math.max(0, Number(row.existingAmount || 0))}" placeholder="Existing amount"></div>`).join('')}</div><button id="addInvestment" class="btn btn-soft" type="button" ${values.investments.length >= 20 ? 'disabled' : ''}>Add Investment</button>`;
     } else {
-      const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+      const named = values.investments
+        .map((item) => ({ ...item, name: item.name.trim(), existingAmount: Math.max(0, Number(item.existingAmount || 0)) }))
+        .filter((item) => item.name);
       const tempStack = StackRules.normalizeStackDraft({
         stackName: values.stackName,
         monthlyContribution: values.monthlyContribution,
@@ -846,12 +937,17 @@ const SurveyUI = {
       SurveyUI.renderSurvey({ animate: false });
     }));
 
+    stage.querySelectorAll('.inv-existing').forEach((input) => input.addEventListener('input', (event) => {
+      const idx = Number(event.target.dataset.index);
+      values.investments[idx].existingAmount = Math.max(0, Number(event.target.value || 0));
+    }));
+
     const addBtn = stage.querySelector('#addInvestment');
     if (addBtn) {
       addBtn.addEventListener('click', () => {
         if (values.investments.length >= 20) return;
         const n = values.investments.length + 1;
-        values.investments.push({ name: '', targetPercent: 100 / n });
+        values.investments.push({ name: '', targetPercent: 100 / n, existingAmount: 0 });
         values.investments.forEach((item) => { item.targetPercent = 100 / n; });
         SurveyUI.renderSurvey({ animate: false });
       });
@@ -888,7 +984,9 @@ const SurveyUI = {
     }
 
     if (state.survey.step === 3) {
-      const named = values.investments.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+      const named = values.investments
+        .map((item) => ({ ...item, name: item.name.trim(), existingAmount: Math.max(0, Number(item.existingAmount || 0)) }))
+        .filter((item) => item.name);
       if (named.length < 2 || named.length > 20) return void (nodes.surveyError.textContent = 'Add between 2 and 20 investment names.');
       const totalPercent = named.reduce((sum, item) => sum + Number(item.targetPercent || 0), 0);
       if (Math.abs(totalPercent - 100) > 0.01) return void (nodes.surveyError.textContent = 'Allocation percentages must total 100%.');
