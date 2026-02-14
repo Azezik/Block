@@ -43,6 +43,7 @@ const nodes = {
   customAvailableBlocks: document.getElementById('customAvailableBlocks'),
   customCrateGrid: document.getElementById('customCrateGrid'),
   customStackWorkspace: document.getElementById('customStackWorkspace'),
+  stackCarouselShell: document.getElementById('stackCarouselShell'),
   customCashTitle: document.getElementById('customCashTitle'),
   customBoardTitle: document.getElementById('customBoardTitle'),
   customStackFill: document.getElementById('customStackFill'),
@@ -269,6 +270,26 @@ function getActiveStackCard(portfolio) {
   return portfolio.stackCards[portfolio.activeCardIndex] || null;
 }
 
+function isStackCardFull(card) {
+  return card.crates.every((crate) => crate.filled === crate.slotTarget);
+}
+
+function syncPortfolioCardState(portfolio) {
+  if (!Array.isArray(portfolio.stackCards) || !portfolio.stackCards.length) {
+    portfolio.stackCards = [makeStackCardFromTemplate(portfolio.cratesTemplate || [])];
+  }
+
+  portfolio.activeCardIndex = Math.max(0, Math.min(portfolio.stackCards.length - 1, Number(portfolio.activeCardIndex || 0)));
+
+  const activeCard = getActiveStackCard(portfolio);
+  if (activeCard && isStackCardFull(activeCard) && portfolio.activeCardIndex === portfolio.stackCards.length - 1) {
+    portfolio.stackCards.push(makeStackCardFromTemplate(portfolio.cratesTemplate));
+    portfolio.activeCardIndex = portfolio.stackCards.length - 1;
+  }
+
+  portfolio.completedStacks = portfolio.stackCards.filter((card) => isStackCardFull(card)).length;
+}
+
 const StackRules = {
   validateDraft(draft) {
     if (!draft.stackName || !draft.stackName.trim()) return 'Stack name is required.';
@@ -393,7 +414,7 @@ const StackStorage = {
             startingFilledBlocks: crate.startingFilledBlocks,
             overflowDollars: crate.overflowDollars
           }));
-          return {
+          const normalizedPortfolio = {
             ...entry,
             cratesTemplate,
             activeCardIndex: Number(entry.activeCardIndex || 0),
@@ -413,8 +434,12 @@ const StackStorage = {
               crates: card.crates.map((crate) => ({ ...crate }))
             }))
           };
+          syncPortfolioCardState(normalizedPortfolio);
+          return normalizedPortfolio;
         }
-        return toPortfolioModel(StackRules.normalizeLoadedStack(entry));
+        const portfolio = toPortfolioModel(StackRules.normalizeLoadedStack(entry));
+        syncPortfolioCardState(portfolio);
+        return portfolio;
       });
     } catch {
       return [];
@@ -424,13 +449,7 @@ const StackStorage = {
 
 
 function checkAndAdvanceCompletedCard(portfolio) {
-  const activeCard = getActiveStackCard(portfolio);
-  if (!activeCard) return;
-  const isFull = activeCard.crates.every((crate) => crate.filled === crate.slotTarget);
-  if (!isFull) return;
-  portfolio.completedStacks += 1;
-  portfolio.stackCards.push(makeStackCardFromTemplate(portfolio.cratesTemplate));
-  portfolio.activeCardIndex = portfolio.stackCards.length - 1;
+  syncPortfolioCardState(portfolio);
 }
 
 const StackEngine = {
@@ -480,6 +499,7 @@ const StackEngine = {
     const moved = StackEngine.removeBlock(from);
     if (!moved) return false;
     StackEngine.assignBlock(to);
+    checkAndAdvanceCompletedCard(portfolio);
     return true;
   }
 };
@@ -572,6 +592,7 @@ const portfolioSettingsUI = createPortfolioSettings({
     updated.monthCounter = prev.monthCounter;
     updated.elapsedMsInPeriod = prev.elapsedMsInPeriod;
     updated.completedStacks = prev.completedStacks;
+    syncPortfolioCardState(updated);
     state.customRuntimes[idx] = updated;
     state.activeSettings = false;
     saveAllCustomStacks();
@@ -1022,9 +1043,15 @@ const SurveyUI = {
       });
 
       const idx = state.customRuntimes.findIndex((stack) => stack.stackId === built.stackId);
-      if (idx >= 0) state.customRuntimes[idx] = built;
+      if (idx >= 0) {
+        const updated = toPortfolioModel(built);
+        syncPortfolioCardState(updated);
+        state.customRuntimes[idx] = updated;
+      }
     } else {
-      state.customRuntimes.push(toPortfolioModel(built));
+      const created = toPortfolioModel(built);
+      syncPortfolioCardState(created);
+      state.customRuntimes.push(created);
     }
 
     state.selectedCustomStackId = built.stackId;
@@ -1062,6 +1089,7 @@ function render() {
     return;
   }
 
+  syncPortfolioCardState(selected);
   nodes.openSettingsBtn.disabled = false;
   if (state.activeSettings) {
     nodes.customStackWorkspace.classList.add('hidden');
@@ -1075,6 +1103,8 @@ function render() {
   nodes.customCashTitle.textContent = `${selected.stackName} Waiting Room`;
   nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
 
+  const hasStackHistory = selected.stackCards.length > 1;
+  nodes.stackCarouselShell.classList.toggle('hidden', !hasStackHistory);
   stackCarouselUI.setCards(selected.stackCards, selected.activeCardIndex || 0);
   const card = getActiveStackCard(selected);
   if (card) Renderer.renderStackView(selected, card, selected.activeCardIndex || 0);
@@ -1082,7 +1112,10 @@ function render() {
 
 function tick() {
   updateDemoTime(state.demo);
-  state.customRuntimes.forEach((stack) => StackEngine.tickStack(stack));
+  state.customRuntimes.forEach((stack) => {
+    StackEngine.tickStack(stack);
+    syncPortfolioCardState(stack);
+  });
   saveAllCustomStacks();
   render();
 }
