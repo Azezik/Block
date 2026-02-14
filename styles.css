@@ -446,3 +446,69 @@ body {
   color: #cbd5e1;
   font-size: 0.8rem;
 }
+
+.stack-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.selector-shell {
+  position: relative;
+  margin-top: 0.75rem;
+}
+
+.selector-btn {
+  width: 100%;
+  text-align: left;
+}
+
+.selector-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 4;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #0b1220;
+  padding: 0.35rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.selector-menu-item {
+  border: 1px solid #334155;
+  background: #111827;
+  color: var(--text);
+  border-radius: 8px;
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+}
+
+.carousel-shell {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stack-carousel-window {
+  overflow: hidden;
+}
+
+.stack-carousel-track {
+  display: flex;
+  transition: transform 0.22s ease;
+}
+
+.stack-carousel-card {
+  min-width: 100%;
+  min-height: 70px;
+  opacity: 0.5;
+}
+
+.stack-carousel-card.active {
+  opacity: 1;
+}

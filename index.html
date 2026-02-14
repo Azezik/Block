@@ -49,20 +49,34 @@
           <section class="card stacks-list-panel">
             <div class="stacks-list-header">
               <h2>My Stacks</h2>
-              <button id="createStackBtn" class="btn" type="button">+ Create New Stack</button>
+              <div class="stack-actions">
+                <button id="createStackBtn" class="btn" type="button">+ Create New Stack</button>
+                <button id="openSettingsBtn" class="icon-btn" type="button" aria-label="Open selected portfolio settings">⚙</button>
+              </div>
             </div>
-            <div id="stacksList"></div>
+            <div class="selector-shell">
+              <button id="stackSelectorBtn" class="btn selector-btn" type="button" aria-expanded="false" aria-haspopup="true">Select Stack Portfolio</button>
+              <div id="stackSelectorMenu" class="selector-menu hidden"></div>
+            </div>
           </section>
 
           <section id="customStackWorkspace" class="hidden">
-            <div class="month-pill" id="customMonthIndicator">Simulator Month 1</div>
-            <div class="stack-stats">
-              <p>Current cycle fill: <strong id="customStackFill">0 / 0</strong></p>
-              <p>Completed stacks: <strong id="customCompletedStacks">0</strong></p>
-              <p>Waiting Room blocks: <strong id="customWaitingRoomCount">0</strong></p>
-              <p>Cash balance: <strong id="customCashBalance">$0.00</strong></p>
+            <div class="carousel-shell">
+              <button id="stackPrevBtn" class="icon-btn" type="button" aria-label="Previous stack">‹</button>
+              <div class="stack-carousel-window">
+                <div id="stackCarouselTrack" class="stack-carousel-track"></div>
+              </div>
+              <button id="stackNextBtn" class="icon-btn" type="button" aria-label="Next stack">›</button>
             </div>
+            <p id="stackCardMeta" class="hint"></p>
             <section class="cash-panel card">
+              <div class="month-pill" id="customMonthIndicator">Simulator Month 1</div>
+              <div class="stack-stats">
+                <p>Current cycle fill: <strong id="customStackFill">0 / 0</strong></p>
+                <p>Completed stacks: <strong id="customCompletedStacks">0</strong></p>
+                <p>Waiting Room blocks: <strong id="customWaitingRoomCount">0</strong></p>
+                <p>Cash balance: <strong id="customCashBalance">$0.00</strong></p>
+              </div>
               <h2 id="customCashTitle">Cash Crate</h2>
               <div class="cash-layout">
                 <div class="cash-crate-shell" aria-label="Cash crate fill indicator">
@@ -89,6 +103,21 @@
               </div>
               <div id="customCrateGrid" class="crate-grid"></div>
             </section>
+          </section>
+
+          <section id="portfolioSettingsView" class="card hidden">
+            <h2>Portfolio Settings</h2>
+            <div class="survey-content">
+              <input id="portfolioSettingsName" class="field" type="text" placeholder="Portfolio name">
+              <select id="portfolioSettingsMonthly" class="field"></select>
+              <div id="portfolioSettingsInvestments"></div>
+              <button id="portfolioSettingsAdd" class="btn btn-soft" type="button">Add Investment</button>
+              <p id="portfolioSettingsError" class="survey-error"></p>
+              <div class="stack-actions">
+                <button id="portfolioSettingsCancel" class="btn btn-soft" type="button">Back</button>
+                <button id="portfolioSettingsSave" class="btn" type="button">Save Portfolio Settings</button>
+              </div>
+            </div>
           </section>
         </div>
       </section>

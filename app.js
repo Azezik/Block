@@ -1,8 +1,11 @@
 import { computeCrateLayout } from './crateLayoutEngine.js';
+import { createStackSelector } from './stackSelector.js';
+import { createStackCarousel } from './stackCarousel.js';
+import { createPortfolioSettings } from './portfolioSettings.js';
 
 const MONTH_DURATION_MS = 15000;
 const TICK_MS = 100;
-const STORAGE_KEY = 'block.custom.stacks.v5';
+const STORAGE_KEY = 'block.custom.stacks.v6';
 const LEGACY_STORAGE_KEY = 'block.custom.stacks.v3';
 const MONTHLY_BUDGET_OPTIONS = [100, 250, 500, 750, 1000];
 const MAX_STACK_SLOTS = 24;
@@ -18,6 +21,7 @@ const state = {
   demo: makeDemoRuntime(),
   customRuntimes: [],
   selectedCustomStackId: null,
+  activeSettings: false,
   survey: { open: false, mode: 'create', step: 1, editingId: null, values: getEmptySurveyValues() }
 };
 
@@ -45,7 +49,17 @@ const nodes = {
   customWaitingRoomCount: document.getElementById('customWaitingRoomCount'),
   customCashBalance: document.getElementById('customCashBalance'),
   customCompletedStacks: document.getElementById('customCompletedStacks'),
-  stacksList: document.getElementById('stacksList'),
+  stackSelectorBtn: document.getElementById('stackSelectorBtn'),
+  stackSelectorMenu: document.getElementById('stackSelectorMenu'),
+  openSettingsBtn: document.getElementById('openSettingsBtn'),
+  portfolioSettingsView: document.getElementById('portfolioSettingsView'),
+  portfolioSettingsSave: document.getElementById('portfolioSettingsSave'),
+  portfolioSettingsCancel: document.getElementById('portfolioSettingsCancel'),
+  portfolioSettingsAdd: document.getElementById('portfolioSettingsAdd'),
+  stackCarouselTrack: document.getElementById('stackCarouselTrack'),
+  stackPrevBtn: document.getElementById('stackPrevBtn'),
+  stackNextBtn: document.getElementById('stackNextBtn'),
+  stackCardMeta: document.getElementById('stackCardMeta'),
   createStackBtn: document.getElementById('createStackBtn'),
   editStackBtn: document.getElementById('editStackBtn'),
   surveyModal: document.getElementById('surveyModal'),
@@ -158,6 +172,58 @@ function calculateTargets(stack) {
   return stack;
 }
 
+function makeStackCardFromTemplate(cratesTemplate = []) {
+  return {
+    cardId: crypto.randomUUID(),
+    crates: cratesTemplate.map((crate) => ({
+      crateId: crate.crateId,
+      name: crate.name,
+      requestedPercent: crate.requestedPercent,
+      slotTarget: crate.slotTarget,
+      filled: 0
+    }))
+  };
+}
+
+function toPortfolioModel(stack) {
+  const normalized = calculateTargets({ ...stack, crates: stack.crates.map((crate) => ({ ...crate })) });
+  const cratesTemplate = normalized.crates.map((crate) => ({
+    crateId: crate.crateId,
+    name: crate.name,
+    requestedPercent: crate.requestedPercent,
+    slotTarget: crate.slotTarget
+  }));
+  const firstCard = {
+    cardId: crypto.randomUUID(),
+    crates: normalized.crates.map((crate) => ({
+      crateId: crate.crateId,
+      name: crate.name,
+      requestedPercent: crate.requestedPercent,
+      slotTarget: crate.slotTarget,
+      filled: crate.filled
+    }))
+  };
+  return {
+    stackId: normalized.stackId,
+    stackName: normalized.stackName,
+    monthlyContribution: normalized.monthlyContribution,
+    blockValue: normalized.blockValue,
+    cashBalance: normalized.cashBalance,
+    waitingRoomBlocks: normalized.waitingRoomBlocks,
+    completedStacks: normalized.completedStacks,
+    monthCounter: normalized.monthCounter,
+    elapsedMsInPeriod: normalized.elapsedMsInPeriod,
+    fullStackSize: normalized.fullStackSize,
+    cratesTemplate,
+    stackCards: [firstCard],
+    activeCardIndex: 0
+  };
+}
+
+function getActiveStackCard(portfolio) {
+  return portfolio.stackCards[portfolio.activeCardIndex] || null;
+}
+
 const StackRules = {
   validateDraft(draft) {
     if (!draft.stackName || !draft.stackName.trim()) return 'Stack name is required.';
@@ -256,18 +322,34 @@ const StackStorage = {
     try {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
-      return parsed.map((stack) => StackRules.normalizeLoadedStack(stack));
+      return parsed.map((entry) => {
+        if (Array.isArray(entry.stackCards) && Array.isArray(entry.cratesTemplate)) {
+          return {
+            ...entry,
+            activeCardIndex: Number(entry.activeCardIndex || 0),
+            stackCards: entry.stackCards.map((card) => ({
+              cardId: card.cardId || crypto.randomUUID(),
+              crates: card.crates.map((crate) => ({ ...crate }))
+            }))
+          };
+        }
+        return toPortfolioModel(StackRules.normalizeLoadedStack(entry));
+      });
     } catch {
       return [];
     }
   }
 };
 
-function checkAndResetCompletedStack(stack) {
-  const isFull = stack.crates.every((crate) => crate.filled === crate.slotTarget);
+
+function checkAndAdvanceCompletedCard(portfolio) {
+  const activeCard = getActiveStackCard(portfolio);
+  if (!activeCard) return;
+  const isFull = activeCard.crates.every((crate) => crate.filled === crate.slotTarget);
   if (!isFull) return;
-  stack.completedStacks += 1;
-  stack.crates.forEach((crate) => { crate.filled = 0; });
+  portfolio.completedStacks += 1;
+  portfolio.stackCards.push(makeStackCardFromTemplate(portfolio.cratesTemplate));
+  portfolio.activeCardIndex = portfolio.stackCards.length - 1;
 }
 
 const StackEngine = {
@@ -296,21 +378,23 @@ const StackEngine = {
     return true;
   },
 
-  allocateBlockToCrate(stack, crateId) {
-    if (stack.waitingRoomBlocks <= 0) return false;
-    const crate = stack.crates.find((entry) => entry.crateId === crateId);
+  allocateBlockToCrate(portfolio, crateId) {
+    const activeCard = getActiveStackCard(portfolio);
+    if (!activeCard || portfolio.waitingRoomBlocks <= 0) return false;
+    const crate = activeCard.crates.find((entry) => entry.crateId === crateId);
     if (!crate) return false;
     const assigned = StackEngine.assignBlock(crate);
     if (!assigned) return false;
-    stack.waitingRoomBlocks -= 1;
-    checkAndResetCompletedStack(stack);
+    portfolio.waitingRoomBlocks -= 1;
+    checkAndAdvanceCompletedCard(portfolio);
     return true;
   },
 
-  moveFullBlock(stack, fromCrateId, toCrateId) {
-    if (fromCrateId === toCrateId) return false;
-    const from = stack.crates.find((item) => item.crateId === fromCrateId);
-    const to = stack.crates.find((item) => item.crateId === toCrateId);
+  moveFullBlock(portfolio, fromCrateId, toCrateId) {
+    const activeCard = getActiveStackCard(portfolio);
+    if (!activeCard || fromCrateId === toCrateId) return false;
+    const from = activeCard.crates.find((item) => item.crateId === fromCrateId);
+    const to = activeCard.crates.find((item) => item.crateId === toCrateId);
     if (!from || !to || to.filled >= to.slotTarget) return false;
     const moved = StackEngine.removeBlock(from);
     if (!moved) return false;
@@ -346,6 +430,69 @@ function getSelectedCustomRuntime() {
 function saveAllCustomStacks() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.customRuntimes));
 }
+
+
+
+const stackSelectorUI = createStackSelector({
+  buttonNode: nodes.stackSelectorBtn,
+  menuNode: nodes.stackSelectorMenu,
+  onSelect: (stackId) => {
+    state.selectedCustomStackId = stackId;
+    const portfolio = getSelectedCustomRuntime();
+    if (portfolio) portfolio.activeCardIndex = Math.max(0, portfolio.activeCardIndex || 0);
+    state.activeSettings = false;
+    render();
+  }
+});
+
+const stackCarouselUI = createStackCarousel({
+  trackNode: nodes.stackCarouselTrack,
+  prevNode: nodes.stackPrevBtn,
+  nextNode: nodes.stackNextBtn,
+  onActiveCardChanged: (nextIndex) => {
+    const selected = getSelectedCustomRuntime();
+    if (!selected) return;
+    selected.activeCardIndex = nextIndex;
+    render();
+  },
+  renderCard: (shellNode, card, index) => {
+    shellNode.classList.add('card');
+    const filled = card.crates.reduce((sum, crate) => sum + crate.filled, 0);
+    const total = card.crates.reduce((sum, crate) => sum + crate.slotTarget, 0);
+    shellNode.innerHTML = `<strong>Stack ${index + 1}</strong><p class="hint">${filled}/${total} slots filled</p>`;
+  }
+});
+
+const portfolioSettingsUI = createPortfolioSettings({
+  rootNode: nodes.portfolioSettingsView,
+  saveNode: nodes.portfolioSettingsSave,
+  cancelNode: nodes.portfolioSettingsCancel,
+  addInvestmentNode: nodes.portfolioSettingsAdd,
+  monthlyOptions: MONTHLY_BUDGET_OPTIONS,
+  onCancel: () => {
+    state.activeSettings = false;
+    render();
+  },
+  onSave: (draft) => {
+    const err = StackRules.validateDraft(draft);
+    if (err) return err;
+    const rebuilt = StackRules.normalizeStackDraft(draft);
+    const idx = state.customRuntimes.findIndex((item) => item.stackId === draft.stackId);
+    if (idx < 0) return 'Portfolio not found.';
+    const prev = state.customRuntimes[idx];
+    const updated = toPortfolioModel(rebuilt);
+    updated.cashBalance = prev.cashBalance;
+    updated.waitingRoomBlocks = prev.waitingRoomBlocks;
+    updated.monthCounter = prev.monthCounter;
+    updated.elapsedMsInPeriod = prev.elapsedMsInPeriod;
+    updated.completedStacks = prev.completedStacks;
+    state.customRuntimes[idx] = updated;
+    state.activeSettings = false;
+    saveAllCustomStacks();
+    render();
+    return null;
+  }
+});
 
 function updateDemoTime(runtime) {
   const delta = (TICK_MS / MONTH_DURATION_MS) * 100;
@@ -423,21 +570,23 @@ function getStackCashProgressPercent(stack) {
 }
 
 const Renderer = {
-  renderUnallocatedBlocks(stack) {
+  renderUnallocatedBlocks(portfolio, editable) {
     nodes.customAvailableBlocks.innerHTML = '';
-    for (let i = 0; i < stack.waitingRoomBlocks; i += 1) {
+    for (let i = 0; i < portfolio.waitingRoomBlocks; i += 1) {
       const block = document.createElement('div');
       block.className = 'block';
-      block.draggable = true;
-      block.textContent = `$${stack.blockValue.toLocaleString()}`;
-      block.addEventListener('dragstart', (event) => {
-        event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'cash' }));
-      });
+      block.draggable = editable;
+      block.textContent = `$${portfolio.blockValue.toLocaleString()}`;
+      if (editable) {
+        block.addEventListener('dragstart', (event) => {
+          event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'cash' }));
+        });
+      }
       nodes.customAvailableBlocks.appendChild(block);
     }
   },
 
-  renderCrates(crates, stack) {
+  renderCrates(crates, portfolio, editable) {
     nodes.customCrateGrid.innerHTML = '';
     crates.forEach((crate) => {
       const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
@@ -446,10 +595,12 @@ const Renderer = {
       const slots = node.querySelector('.slots');
       renderCrateGrid(slots, crate.slotTarget, crate.filled, (fillNode) => {
         fillNode.classList.add('full-block');
-        fillNode.draggable = true;
-        fillNode.addEventListener('dragstart', (event) => {
-          event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'full-block', fromCrateId: crate.crateId }));
-        });
+        fillNode.draggable = editable;
+        if (editable) {
+          fillNode.addEventListener('dragstart', (event) => {
+            event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'full-block', fromCrateId: crate.crateId }));
+          });
+        }
       });
 
       const summary = document.createElement('p');
@@ -457,68 +608,52 @@ const Renderer = {
       summary.textContent = `Requested ${crate.requestedPercent.toFixed(1)}% · Slots ${crate.slotTarget} · Filled ${crate.filled}/${crate.slotTarget}`;
       node.appendChild(summary);
 
-      node.addEventListener('dragover', (event) => {
-        event.preventDefault();
-        node.classList.add('over');
-      });
-      node.addEventListener('dragleave', () => node.classList.remove('over'));
-      node.addEventListener('drop', (event) => {
-        event.preventDefault();
-        node.classList.remove('over');
-        const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
-        let ok = false;
-        if (payload.type === 'cash') ok = StackEngine.allocateBlockToCrate(stack, crate.crateId);
-        if (payload.type === 'full-block') ok = StackEngine.moveFullBlock(stack, payload.fromCrateId, crate.crateId);
-        if (!ok) flashCrateFull(node);
-        saveAllCustomStacks();
-        render();
-      });
+      if (editable) {
+        node.addEventListener('dragover', (event) => {
+          event.preventDefault();
+          node.classList.add('over');
+        });
+        node.addEventListener('dragleave', () => node.classList.remove('over'));
+        node.addEventListener('drop', (event) => {
+          event.preventDefault();
+          node.classList.remove('over');
+          const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+          let ok = false;
+          if (payload.type === 'cash') ok = StackEngine.allocateBlockToCrate(portfolio, crate.crateId);
+          if (payload.type === 'full-block') ok = StackEngine.moveFullBlock(portfolio, payload.fromCrateId, crate.crateId);
+          if (!ok) flashCrateFull(node);
+          saveAllCustomStacks();
+          render();
+        });
+      }
 
       nodes.customCrateGrid.appendChild(node);
     });
   },
 
-  renderStackView(stack) {
-    const progress = getStackCashProgressPercent(stack);
-    nodes.customMonthIndicator.textContent = `Simulator Month ${stack.monthCounter}`;
+  renderStackView(portfolio, card, cardIndex) {
+    const editable = cardIndex === portfolio.activeCardIndex;
+    const progress = getStackCashProgressPercent(portfolio);
+    nodes.customMonthIndicator.textContent = `Simulator Month ${portfolio.monthCounter}`;
     nodes.customCashFill.style.width = `${progress}%`;
     nodes.customCashPercent.textContent = `${Math.round(progress)}%`;
 
-    const totalSlots = stack.crates.reduce((sum, crate) => sum + crate.slotTarget, 0);
-    const filledSlots = stack.crates.reduce((sum, crate) => sum + crate.filled, 0);
+    const totalSlots = card.crates.reduce((sum, crate) => sum + crate.slotTarget, 0);
+    const filledSlots = card.crates.reduce((sum, crate) => sum + crate.filled, 0);
 
-    nodes.customCashStatus.textContent = stack.waitingRoomBlocks > 0
-      ? `${stack.waitingRoomBlocks} Waiting Room Block${stack.waitingRoomBlocks > 1 ? 's' : ''}`
-      : `Cash balance: $${stack.cashBalance.toFixed(2)}`;
+    nodes.customCashStatus.textContent = portfolio.waitingRoomBlocks > 0
+      ? `${portfolio.waitingRoomBlocks} Waiting Room Block${portfolio.waitingRoomBlocks > 1 ? 's' : ''}`
+      : `Cash balance: $${portfolio.cashBalance.toFixed(2)}`;
     nodes.customStackFill.textContent = `${filledSlots} / ${totalSlots}`;
-    nodes.customWaitingRoomCount.textContent = `${stack.waitingRoomBlocks}`;
-    nodes.customCashBalance.textContent = `$${stack.cashBalance.toFixed(2)}`;
-    nodes.customCompletedStacks.textContent = `${stack.completedStacks}`;
+    nodes.customWaitingRoomCount.textContent = `${portfolio.waitingRoomBlocks}`;
+    nodes.customCashBalance.textContent = `$${portfolio.cashBalance.toFixed(2)}`;
+    nodes.customCompletedStacks.textContent = `${portfolio.completedStacks}`;
+    nodes.stackCardMeta.textContent = editable
+      ? `Stack ${cardIndex + 1} of ${portfolio.stackCards.length} (active)`
+      : `Stack ${cardIndex + 1} of ${portfolio.stackCards.length} (completed snapshot)`;
 
-    Renderer.renderUnallocatedBlocks(stack);
-    Renderer.renderCrates(stack.crates, stack);
-  },
-
-  renderMyStacks(stacks) {
-    nodes.stacksList.innerHTML = '';
-    if (!stacks.length) {
-      const empty = document.createElement('p');
-      empty.className = 'empty-msg';
-      empty.innerHTML = 'No stacks yet. <button class="inline-link" id="buildOwn" type="button">Build your own?</button>';
-      nodes.stacksList.appendChild(empty);
-      document.getElementById('buildOwn').addEventListener('click', openCreateSurvey);
-      nodes.customStackWorkspace.classList.add('hidden');
-      return;
-    }
-
-    stacks.forEach((stack) => {
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = `stack-card ${stack.stackId === state.selectedCustomStackId ? 'selected' : ''}`;
-      card.innerHTML = `<strong>${stack.stackName}</strong><span>Block Value: $${stack.blockValue}</span><span>Full Stack Size: ${stack.fullStackSize} blocks</span><span>Completed Stacks: ${stack.completedStacks}</span>`;
-      card.addEventListener('click', () => { state.selectedCustomStackId = stack.stackId; render(); });
-      nodes.stacksList.appendChild(card);
-    });
+    Renderer.renderUnallocatedBlocks(portfolio, editable);
+    Renderer.renderCrates(card.crates, portfolio, editable);
   }
 };
 
@@ -791,10 +926,11 @@ const SurveyUI = {
       const idx = state.customRuntimes.findIndex((stack) => stack.stackId === built.stackId);
       if (idx >= 0) state.customRuntimes[idx] = built;
     } else {
-      state.customRuntimes.push(built);
+      state.customRuntimes.push(toPortfolioModel(built));
     }
 
     state.selectedCustomStackId = built.stackId;
+    state.activeSettings = false;
     saveAllCustomStacks();
     state.survey.open = false;
     nodes.surveyModal.classList.add('hidden');
@@ -803,7 +939,10 @@ const SurveyUI = {
 };
 
 function openCreateSurvey() { SurveyUI.openCreateSurvey(); }
-function openEditSurvey() { SurveyUI.openEditSurvey(); }
+function openEditSurvey() {
+  state.activeSettings = true;
+  render();
+}
 
 function setTab(tab) {
   state.activeTab = tab;
@@ -815,13 +954,32 @@ function setTab(tab) {
 
 function render() {
   renderDemo();
-  Renderer.renderMyStacks(state.customRuntimes);
+  stackSelectorUI.setData(state.customRuntimes, state.selectedCustomStackId);
+
   const selected = getSelectedCustomRuntime();
-  if (!selected) return nodes.customStackWorkspace.classList.add('hidden');
+  if (!selected) {
+    nodes.customStackWorkspace.classList.add('hidden');
+    nodes.portfolioSettingsView.classList.add('hidden');
+    nodes.openSettingsBtn.disabled = true;
+    return;
+  }
+
+  nodes.openSettingsBtn.disabled = false;
+  if (state.activeSettings) {
+    nodes.customStackWorkspace.classList.add('hidden');
+    nodes.portfolioSettingsView.classList.remove('hidden');
+    portfolioSettingsUI.load(selected);
+    return;
+  }
+
+  nodes.portfolioSettingsView.classList.add('hidden');
   nodes.customStackWorkspace.classList.remove('hidden');
   nodes.customCashTitle.textContent = `${selected.stackName} Waiting Room`;
   nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
-  Renderer.renderStackView(selected);
+
+  stackCarouselUI.setCards(selected.stackCards, selected.activeCardIndex || 0);
+  const card = getActiveStackCard(selected);
+  if (card) Renderer.renderStackView(selected, card, selected.activeCardIndex || 0);
 }
 
 function tick() {
@@ -834,6 +992,11 @@ function tick() {
 nodes.tabDemo.addEventListener('click', () => setTab('demo'));
 nodes.tabMyStacks.addEventListener('click', () => setTab('my-stacks'));
 nodes.createStackBtn.addEventListener('click', openCreateSurvey);
+nodes.openSettingsBtn.addEventListener('click', () => {
+  if (!getSelectedCustomRuntime()) return;
+  state.activeSettings = true;
+  render();
+});
 nodes.editStackBtn.addEventListener('click', openEditSurvey);
 nodes.surveyClose.addEventListener('click', () => SurveyUI.cancelSurvey());
 nodes.surveyCancel.addEventListener('click', (event) => {
