@@ -1,10 +1,14 @@
 export function getCrateValue(crateState, blockValue) {
   const safeBlockValue = Math.max(0, Number(blockValue) || 0);
   const filled = Math.max(0, Number(crateState?.filled) || 0);
+  const valueDollars = Number(crateState?.valueDollars);
+  const currentValue = Number.isFinite(valueDollars)
+    ? Math.max(0, valueDollars)
+    : filled * safeBlockValue;
   const slotTarget = Math.max(0, Number(crateState?.slotTarget) || 0);
 
   return {
-    currentValue: filled * safeBlockValue,
+    currentValue,
     maxValue: slotTarget * safeBlockValue
   };
 }
@@ -12,6 +16,24 @@ export function getCrateValue(crateState, blockValue) {
 export function getCurrentStackValue(stackInstance, blockValue) {
   if (!Array.isArray(stackInstance?.crates)) return 0;
   return stackInstance.crates.reduce((sum, crate) => sum + getCrateValue(crate, blockValue).currentValue, 0);
+}
+
+export function getTotalInvestedValue(portfolio) {
+  const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  if (!Array.isArray(portfolio?.stackCards)) return 0;
+  return portfolio.stackCards.reduce((stackSum, stackCard) => (
+    stackSum + getCurrentStackValue(stackCard, safeBlockValue)
+  ), 0);
+}
+
+export function getTotalCashValue(portfolio) {
+  const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const waitingRoomBlocks = Math.max(0, Number(portfolio?.waitingRoomBlocks) || 0);
+  return waitingRoomBlocks * safeBlockValue;
+}
+
+export function getTotalPortfolioValue(portfolio) {
+  return getTotalCashValue(portfolio) + getTotalInvestedValue(portfolio);
 }
 
 export function getFullStackValue(portfolio) {
@@ -44,6 +66,9 @@ export function getQuickProgressReport(portfolio) {
   return {
     fullStackValue: getFullStackValue(portfolio),
     currentStackValue: getCurrentStackValue(activeCard, blockValue),
+    totalPortfolioValue: getTotalPortfolioValue(portfolio),
+    totalInvestedValue: getTotalInvestedValue(portfolio),
+    totalCashValue: getTotalCashValue(portfolio),
     perCrate
   };
 }
