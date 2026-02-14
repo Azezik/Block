@@ -1,4 +1,4 @@
-export function createPortfolioSettings({ rootNode, saveNode, cancelNode, addInvestmentNode, onSave, onCancel, monthlyOptions }) {
+export function createPortfolioSettings({ rootNode, saveNode, cancelNode, deleteNode, addInvestmentNode, onSave, onCancel, onDeleteRequested, monthlyOptions }) {
   const nameInput = rootNode.querySelector('#portfolioSettingsName');
   const monthlySelect = rootNode.querySelector('#portfolioSettingsMonthly');
   const investmentsNode = rootNode.querySelector('#portfolioSettingsInvestments');
@@ -63,6 +63,11 @@ export function createPortfolioSettings({ rootNode, saveNode, cancelNode, addInv
   });
 
   cancelNode.addEventListener('click', onCancel);
+
+  deleteNode.addEventListener('click', () => {
+    if (!draft) return;
+    onDeleteRequested(draft.stackId);
+  });
 
   addInvestmentNode.addEventListener('click', () => {
     if (draft.investments.length >= 20) return;

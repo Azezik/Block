@@ -23,6 +23,7 @@ const state = {
   customRuntimes: [],
   selectedCustomStackId: null,
   activeSettings: false,
+  deleteModalOpen: false,
   survey: { open: false, mode: 'create', step: 1, editingId: null, values: getEmptySurveyValues() }
 };
 
@@ -57,6 +58,7 @@ const nodes = {
   portfolioSettingsView: document.getElementById('portfolioSettingsView'),
   portfolioSettingsSave: document.getElementById('portfolioSettingsSave'),
   portfolioSettingsCancel: document.getElementById('portfolioSettingsCancel'),
+  portfolioSettingsDelete: document.getElementById('portfolioSettingsDelete'),
   portfolioSettingsAdd: document.getElementById('portfolioSettingsAdd'),
   stackCarouselTrack: document.getElementById('stackCarouselTrack'),
   stackPrevBtn: document.getElementById('stackPrevBtn'),
@@ -65,6 +67,9 @@ const nodes = {
   createStackBtn: document.getElementById('createStackBtn'),
   editStackBtn: document.getElementById('editStackBtn'),
   surveyModal: document.getElementById('surveyModal'),
+  deletePortfolioModal: document.getElementById('deletePortfolioModal'),
+  deletePortfolioCancel: document.getElementById('deletePortfolioCancel'),
+  deletePortfolioConfirm: document.getElementById('deletePortfolioConfirm'),
   surveyQuestion: document.getElementById('surveyQuestion'),
   surveyContent: document.getElementById('surveyContent'),
   surveyError: document.getElementById('surveyError'),
@@ -541,6 +546,18 @@ function saveAllCustomStacks() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.customRuntimes));
 }
 
+function deletePortfolioById(stackId) {
+  const idx = state.customRuntimes.findIndex((runtime) => runtime.stackId === stackId);
+  if (idx < 0) return;
+  state.customRuntimes.splice(idx, 1);
+  const fallback = state.customRuntimes[idx] || state.customRuntimes[idx - 1] || state.customRuntimes[0] || null;
+  state.selectedCustomStackId = fallback ? fallback.stackId : null;
+  state.activeSettings = false;
+  state.deleteModalOpen = false;
+  saveAllCustomStacks();
+  setTab('my-stacks');
+  render();
+}
 
 
 const stackSelectorUI = createStackSelector({
@@ -577,10 +594,16 @@ const portfolioSettingsUI = createPortfolioSettings({
   rootNode: nodes.portfolioSettingsView,
   saveNode: nodes.portfolioSettingsSave,
   cancelNode: nodes.portfolioSettingsCancel,
+  deleteNode: nodes.portfolioSettingsDelete,
   addInvestmentNode: nodes.portfolioSettingsAdd,
   monthlyOptions: MONTHLY_BUDGET_OPTIONS,
   onCancel: () => {
     state.activeSettings = false;
+    render();
+  },
+  onDeleteRequested: (stackId) => {
+    if (stackId !== state.selectedCustomStackId) return;
+    state.deleteModalOpen = true;
     render();
   },
   onSave: (draft) => {
@@ -1092,6 +1115,8 @@ function render() {
 
   const selected = getSelectedCustomRuntime();
   if (!selected) {
+    state.deleteModalOpen = false;
+    nodes.deletePortfolioModal.classList.add('hidden');
     nodes.customStackWorkspace.classList.add('hidden');
     nodes.portfolioSettingsView.classList.add('hidden');
     nodes.openSettingsBtn.disabled = true;
@@ -1104,19 +1129,22 @@ function render() {
     nodes.customStackWorkspace.classList.add('hidden');
     nodes.portfolioSettingsView.classList.remove('hidden');
     portfolioSettingsUI.load(selected);
-    return;
+  } else {
+    nodes.portfolioSettingsView.classList.add('hidden');
+    nodes.customStackWorkspace.classList.remove('hidden');
+    nodes.customCashTitle.textContent = `${selected.stackName} Waiting Room`;
+    nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
+
+    const hasStackHistory = selected.stackCards.length > 1;
+    nodes.stackCarouselShell.classList.toggle('hidden', !hasStackHistory);
+    stackCarouselUI.setCards(selected.stackCards, selected.activeCardIndex || 0);
+    const card = getActiveStackCard(selected);
+    if (card) Renderer.renderStackView(selected, card, selected.activeCardIndex || 0);
   }
 
-  nodes.portfolioSettingsView.classList.add('hidden');
-  nodes.customStackWorkspace.classList.remove('hidden');
-  nodes.customCashTitle.textContent = `${selected.stackName} Waiting Room`;
-  nodes.customBoardTitle.textContent = `${selected.stackName} Investment Crates`;
+  nodes.deletePortfolioModal.classList.toggle('hidden', !state.deleteModalOpen);
 
-  const hasStackHistory = selected.stackCards.length > 1;
-  nodes.stackCarouselShell.classList.toggle('hidden', !hasStackHistory);
-  stackCarouselUI.setCards(selected.stackCards, selected.activeCardIndex || 0);
-  const card = getActiveStackCard(selected);
-  if (card) Renderer.renderStackView(selected, card, selected.activeCardIndex || 0);
+
 }
 
 function tick() {
@@ -1138,6 +1166,15 @@ nodes.openSettingsBtn.addEventListener('click', () => {
   render();
 });
 nodes.editStackBtn.addEventListener('click', openEditSurvey);
+nodes.deletePortfolioCancel.addEventListener('click', () => {
+  state.deleteModalOpen = false;
+  render();
+});
+nodes.deletePortfolioConfirm.addEventListener('click', () => {
+  const selected = getSelectedCustomRuntime();
+  if (!selected) return;
+  deletePortfolioById(selected.stackId);
+});
 nodes.surveyClose.addEventListener('click', () => SurveyUI.cancelSurvey());
 nodes.surveyCancel.addEventListener('click', (event) => {
   event.preventDefault();

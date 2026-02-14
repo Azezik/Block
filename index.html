@@ -114,6 +114,7 @@
               <button id="portfolioSettingsAdd" class="btn btn-soft" type="button">Add Investment</button>
               <p id="portfolioSettingsError" class="survey-error"></p>
               <div class="stack-actions">
+                <button id="portfolioSettingsDelete" class="btn btn-danger" type="button">Delete Portfolio</button>
                 <button id="portfolioSettingsCancel" class="btn btn-soft" type="button">Back</button>
                 <button id="portfolioSettingsSave" class="btn" type="button">Save Portfolio Settings</button>
               </div>
@@ -143,6 +144,17 @@
           <button id="surveyBack" class="btn btn-soft" type="button">Back</button>
           <a href="#" id="surveyCancel" class="survey-cancel-link">Cancel</a>
           <button id="surveyNext" class="btn" type="button" disabled>Save / Continue</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="deletePortfolioModal" class="survey-backdrop hidden" aria-modal="true" role="dialog" aria-labelledby="deletePortfolioTitle">
+      <div class="confirm-modal card" role="document">
+        <h2 id="deletePortfolioTitle">Delete portfolio?</h2>
+        <p>This action permanently deletes this stack portfolio and all of its data. It cannot be undone.</p>
+        <div class="stack-actions confirm-modal-actions">
+          <button id="deletePortfolioCancel" class="btn btn-soft" type="button">Cancel</button>
+          <button id="deletePortfolioConfirm" class="btn btn-danger" type="button">Confirm Delete</button>
         </div>
       </div>
     </section>
