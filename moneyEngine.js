@@ -48,6 +48,20 @@ export function getQuickProgressReport(portfolio) {
   };
 }
 
+export function getMoneyFlowRates(portfolio) {
+  const cashMintRatePerMinute = Number(portfolio?.cashMintRatePerMinute || 1);
+  const overflowRates = (portfolio?.cratesTemplate || []).map((crate) => ({
+    crateId: crate.crateId,
+    crateName: crate.name,
+    overflowRatePerMinute: Math.max(0, Number(crate.overflowRatePerMinute || 1))
+  }));
+
+  return {
+    cashMintRatePerMinute: Math.max(0, cashMintRatePerMinute),
+    overflowRates
+  };
+}
+
 function makeStackCardFromTemplate(cratesTemplate = []) {
   return {
     cardId: crypto.randomUUID(),
@@ -56,7 +70,8 @@ function makeStackCardFromTemplate(cratesTemplate = []) {
       name: crate.name,
       requestedPercent: crate.requestedPercent,
       slotTarget: crate.slotTarget,
-      filled: 0
+      filled: 0,
+      overflowFilled: 0
     }))
   };
 }
