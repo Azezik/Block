@@ -47,3 +47,119 @@ export function getQuickProgressReport(portfolio) {
     perCrate
   };
 }
+
+function makeStackCardFromTemplate(cratesTemplate = []) {
+  return {
+    cardId: crypto.randomUUID(),
+    crates: cratesTemplate.map((crate) => ({
+      crateId: crate.crateId,
+      name: crate.name,
+      requestedPercent: crate.requestedPercent,
+      slotTarget: crate.slotTarget,
+      filled: 0
+    }))
+  };
+}
+
+export function computeSuggestedExistingAmounts(portfolio) {
+  const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const filledByCrateId = new Map();
+
+  (portfolio?.stackCards || []).forEach((card) => {
+    (card?.crates || []).forEach((crate) => {
+      const filled = Math.max(0, Number(crate?.filled) || 0);
+      filledByCrateId.set(crate.crateId, (filledByCrateId.get(crate.crateId) || 0) + filled);
+    });
+  });
+
+  const overflowByCrateId = new Map((portfolio?.moneyEngine?.crates || []).map((crate) => [
+    crate.crateId,
+    Math.max(0, Number(crate?.overflowDollars) || 0)
+  ]));
+
+  return (portfolio?.cratesTemplate || []).map((crate) => {
+    const filledBlocks = filledByCrateId.get(crate.crateId) || 0;
+    const overflowDollars = overflowByCrateId.get(crate.crateId) || 0;
+    const suggestedAmount = (filledBlocks * blockValue) + overflowDollars;
+    const currentStoredAmount = Math.max(0, Number(crate.existingAmount || 0));
+    return {
+      crateId: crate.crateId,
+      suggestedAmount,
+      currentStoredAmount
+    };
+  });
+}
+
+export function computeExistingAmountDelta(currentAmount, nextAmount) {
+  const current = Math.max(0, Number(currentAmount) || 0);
+  const next = Math.max(0, Number(nextAmount) || 0);
+  return next - current;
+}
+
+export function reconcileExistingAmountsWithPortfolio(portfolio, nextExistingAmountByCrateId) {
+  const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const suggestedByCrateId = new Map(computeSuggestedExistingAmounts(portfolio).map((item) => [item.crateId, item.suggestedAmount]));
+  const normalizedTargets = (portfolio?.cratesTemplate || []).map((crate) => {
+    const targetAmount = Math.max(0, Number(nextExistingAmountByCrateId?.get(crate.crateId) ?? suggestedByCrateId.get(crate.crateId) ?? 0));
+    return {
+      crateId: crate.crateId,
+      targetAmount,
+      deltaAmount: computeExistingAmountDelta(suggestedByCrateId.get(crate.crateId) ?? 0, targetAmount),
+      startingFilledBlocks: blockValue > 0 ? Math.floor(targetAmount / blockValue) : 0,
+      overflowDollars: blockValue > 0 ? targetAmount % blockValue : 0
+    };
+  });
+
+  const nextTemplateByCrateId = new Map(normalizedTargets.map((target) => [target.crateId, target]));
+  portfolio.cratesTemplate = (portfolio.cratesTemplate || []).map((crate) => {
+    const next = nextTemplateByCrateId.get(crate.crateId);
+    if (!next) return crate;
+    return {
+      ...crate,
+      existingAmount: next.targetAmount,
+      startingFilledBlocks: next.startingFilledBlocks,
+      overflowDollars: next.overflowDollars
+    };
+  });
+
+  portfolio.moneyEngine = {
+    blockValue,
+    crates: normalizedTargets.map((target) => ({
+      crateId: target.crateId,
+      existingAmount: target.targetAmount,
+      startingFilledBlocks: target.startingFilledBlocks,
+      overflowDollars: target.overflowDollars,
+      deltaAmount: target.deltaAmount
+    }))
+  };
+
+  const stackCards = [];
+  normalizedTargets.forEach((target) => {
+    let remainingBlocks = target.startingFilledBlocks;
+    let cardIndex = 0;
+
+    while (remainingBlocks > 0) {
+      if (!stackCards[cardIndex]) {
+        stackCards[cardIndex] = makeStackCardFromTemplate(portfolio.cratesTemplate || []);
+      }
+      const targetCrate = stackCards[cardIndex].crates.find((crate) => crate.crateId === target.crateId);
+      if (!targetCrate) break;
+
+      const capacity = Math.max(0, targetCrate.slotTarget - targetCrate.filled);
+      if (capacity <= 0) {
+        cardIndex += 1;
+        continue;
+      }
+
+      const assigned = Math.min(capacity, remainingBlocks);
+      targetCrate.filled += assigned;
+      remainingBlocks -= assigned;
+      cardIndex += 1;
+    }
+  });
+
+  portfolio.stackCards = stackCards.length ? stackCards : [makeStackCardFromTemplate(portfolio.cratesTemplate || [])];
+
+  const firstIncompleteCardIndex = portfolio.stackCards.findIndex((card) => card.crates.some((crate) => crate.filled < crate.slotTarget));
+  portfolio.activeCardIndex = firstIncompleteCardIndex >= 0 ? firstIncompleteCardIndex : portfolio.stackCards.length - 1;
+}

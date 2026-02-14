@@ -2,7 +2,11 @@ import { computeCrateLayout } from './crateLayoutEngine.js';
 import { createStackSelector } from './stackSelector.js';
 import { createStackCarousel } from './stackCarousel.js';
 import { createPortfolioSettings } from './portfolioSettings.js';
-import { getQuickProgressReport } from './moneyEngine.js';
+import {
+  computeSuggestedExistingAmounts,
+  getQuickProgressReport,
+  reconcileExistingAmountsWithPortfolio
+} from './moneyEngine.js';
 import {
   autoDistributeAll,
   buildSurveyInvestment,
@@ -598,10 +602,10 @@ const portfolioSettingsUI = createPortfolioSettings({
     const idx = state.customRuntimes.findIndex((item) => item.stackId === draft.stackId);
     if (idx < 0) return 'Portfolio not found.';
     const prev = state.customRuntimes[idx];
-    const existingAmountByCrateId = new Map((prev.cratesTemplate || []).map((crate) => [crate.crateId, Number(crate.existingAmount || 0)]));
+    const suggestedExistingAmountsByCrateId = new Map(computeSuggestedExistingAmounts(prev).map((item) => [item.crateId, item.suggestedAmount]));
     draft.investments = draft.investments.map((investment) => ({
       ...investment,
-      existingAmount: investment.existingAmount ?? existingAmountByCrateId.get(investment.crateId) ?? 0
+      existingAmount: investment.existingAmount ?? suggestedExistingAmountsByCrateId.get(investment.crateId) ?? 0
     }));
     const rebuilt = StackRules.normalizeStackDraft(draft);
     const updated = toPortfolioModel(rebuilt);
@@ -609,7 +613,10 @@ const portfolioSettingsUI = createPortfolioSettings({
     updated.waitingRoomBlocks = prev.waitingRoomBlocks;
     updated.monthCounter = prev.monthCounter;
     updated.elapsedMsInPeriod = prev.elapsedMsInPeriod;
-    updated.completedStacks = prev.completedStacks;
+
+    const nextExistingAmountByCrateId = new Map(draft.investments.map((investment) => [investment.crateId, Math.max(0, Number(investment.existingAmount || 0))]));
+    reconcileExistingAmountsWithPortfolio(updated, nextExistingAmountByCrateId);
+
     syncPortfolioCardState(updated);
     state.customRuntimes[idx] = updated;
     state.activeSettings = false;
@@ -1169,7 +1176,8 @@ function render() {
   if (state.activeSettings) {
     nodes.customStackWorkspace.classList.add('hidden');
     nodes.portfolioSettingsView.classList.remove('hidden');
-    portfolioSettingsUI.load(selected, getQuickProgressReport(selected));
+    const suggestedExistingAmountsByCrateId = new Map(computeSuggestedExistingAmounts(selected).map((item) => [item.crateId, item.suggestedAmount]));
+    portfolioSettingsUI.load(selected, getQuickProgressReport(selected), suggestedExistingAmountsByCrateId);
   } else {
     nodes.portfolioSettingsView.classList.add('hidden');
     nodes.customStackWorkspace.classList.remove('hidden');
