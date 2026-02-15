@@ -423,6 +423,54 @@ function placeBlockInCrateSequentially(portfolio, crateId, amountDollars) {
   return applyValueToCrateWithRollover(portfolio, crateId, amountDollars, startCardIndex);
 }
 
+function getInvestedBlocksInCrate(portfolio, crateId) {
+  if (!portfolio || !Array.isArray(portfolio.stackCards)) return 0;
+  const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
+
+  return portfolio.stackCards.reduce((sum, card) => {
+    const crate = card.crates.find((entry) => entry.crateId === crateId);
+    if (!crate) return sum;
+    const value = Math.max(0, Number(crate.valueDollars ?? ((crate.filled || 0) * blockValue)));
+    return sum + getNormalizedFullBlockCount(value, blockValue, crate.slotTarget);
+  }, 0);
+}
+
+function clearOverflowForEmptyCrate(portfolio, crateId) {
+  portfolio.stackCards.forEach((card) => {
+    const crate = card.crates.find((entry) => entry.crateId === crateId);
+    if (!crate) return;
+    crate.valueDollars = 0;
+    crate.filled = 0;
+  });
+
+  const overflowCrate = portfolio.overflowEngine?.crates?.find((entry) => entry.crateId === crateId);
+  if (overflowCrate) {
+    overflowCrate.cursorCardIndex = 0;
+  }
+
+  const engineCrate = portfolio.moneyEngine?.crates?.find((entry) => entry.crateId === crateId);
+  if (engineCrate) {
+    engineCrate.existingAmount = 0;
+    engineCrate.startingFilledBlocks = 0;
+    engineCrate.overflowDollars = 0;
+  }
+
+  const templateCrate = portfolio.cratesTemplate?.find((entry) => entry.crateId === crateId);
+  if (templateCrate) {
+    templateCrate.existingAmount = 0;
+  }
+}
+
+function enforceOverflowRequiresInvestedBlocks(portfolio) {
+  if (!portfolio || !Array.isArray(portfolio.cratesTemplate)) return;
+
+  portfolio.cratesTemplate.forEach((crate) => {
+    if (getInvestedBlocksInCrate(portfolio, crate.crateId) <= 0) {
+      clearOverflowForEmptyCrate(portfolio, crate.crateId);
+    }
+  });
+}
+
 function isStackCardFull(card, blockValue) {
   return card.crates.every((crate) => getCrateBlocksAndOverflow(crate, blockValue).fullBlocks === crate.slotTarget);
 }
@@ -446,6 +494,8 @@ function syncPortfolioCardState(portfolio) {
       )
     }))
   }));
+
+  enforceOverflowRequiresInvestedBlocks(portfolio);
 
   portfolio.completedStacks = portfolio.stackCards.filter((card) => isStackCardFull(card, portfolio.blockValue)).length;
 }
@@ -658,6 +708,12 @@ const StackEngine = {
 
     ensureOverflowEngineCrates(stack.overflowEngine, stack.cratesTemplate);
     stack.overflowEngine.crates.forEach((overflowCrate) => {
+      const investedBlocksInCrate = getInvestedBlocksInCrate(stack, overflowCrate.crateId);
+      if (investedBlocksInCrate <= 0) {
+        clearOverflowForEmptyCrate(stack, overflowCrate.crateId);
+        return;
+      }
+
       const template = stack.cratesTemplate.find((entry) => entry.crateId === overflowCrate.crateId);
       const rate = Math.max(0, Number(template?.overflowRatePerMinute ?? overflowCrate.ratePerMinute ?? 1));
       const growthDollars = rate * blockValue * (TICK_MS / 60000);
@@ -692,6 +748,7 @@ const StackEngine = {
     crate.valueDollars = Math.max(0, crate.valueDollars - portfolio.blockValue);
     portfolio.waitingRoomBlocks += 1;
     updateMoneyEngineCrateTotals(portfolio, crateId, -portfolio.blockValue);
+    enforceOverflowRequiresInvestedBlocks(portfolio);
 
     const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
     logSell(portfolio.tradingEngine, crateName, portfolio.blockValue);
@@ -714,6 +771,7 @@ const StackEngine = {
 
     from.valueDollars = Math.max(0, from.valueDollars - portfolio.blockValue);
     to.valueDollars += portfolio.blockValue;
+    enforceOverflowRequiresInvestedBlocks(portfolio);
     checkAndAdvanceCompletedCard(portfolio);
     return true;
   }
