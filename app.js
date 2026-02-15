@@ -113,6 +113,24 @@ const nodes = {
 };
 
 let activeCustomDragPayload = null;
+let customDragInProgress = false;
+let customDragSourceNode = null;
+
+function beginCustomDrag(node, payload) {
+  customDragInProgress = true;
+  activeCustomDragPayload = payload;
+  customDragSourceNode = node;
+  document.body.classList.add('custom-drag-active');
+  node.classList.add('dragging');
+}
+
+function clearCustomDragState() {
+  customDragInProgress = false;
+  activeCustomDragPayload = null;
+  document.body.classList.remove('custom-drag-active');
+  if (customDragSourceNode) customDragSourceNode.classList.remove('dragging');
+  customDragSourceNode = null;
+}
 
 function parseDragPayload(raw) {
   if (!raw) return null;
@@ -131,12 +149,12 @@ function readDragPayload(event) {
 
 function bindDragPayload(draggableNode, payload) {
   draggableNode.addEventListener('dragstart', (event) => {
-    activeCustomDragPayload = payload;
+    beginCustomDrag(draggableNode, payload);
     event.dataTransfer.setData('text/plain', JSON.stringify(payload));
     event.dataTransfer.effectAllowed = 'move';
   });
   draggableNode.addEventListener('dragend', () => {
-    activeCustomDragPayload = null;
+    clearCustomDragState();
   });
 }
 
@@ -1142,7 +1160,7 @@ const Renderer = {
         event.preventDefault();
         event.stopPropagation();
         const payload = readDragPayload(event);
-        activeCustomDragPayload = null;
+        clearCustomDragState();
         nodes.customAvailableBlocks.classList.remove('over');
         if (payload?.type !== 'full-block') return;
         const ok = StackEngine.sellBlockToWaitingRoom(portfolio, payload.fromCrateId);
@@ -1212,7 +1230,7 @@ const Renderer = {
           event.preventDefault();
           node.classList.remove('over');
           const payload = readDragPayload(event);
-          activeCustomDragPayload = null;
+          clearCustomDragState();
           let ok = false;
           if (payload?.type === 'cash') ok = StackEngine.allocateBlockToCrate(portfolio, crate.crateId);
           if (payload?.type === 'full-block') ok = StackEngine.moveFullBlock(portfolio, payload.fromCrateId, crate.crateId);
@@ -1687,6 +1705,7 @@ function tick() {
     syncPortfolioCardState(stack);
   });
   saveAllCustomStacks();
+  if (customDragInProgress) return;
   render();
 }
 
