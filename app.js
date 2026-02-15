@@ -120,6 +120,8 @@ let customDragInProgress = false;
 let customDragSourceNode = null;
 const DRAG_PAYLOAD_MIME = 'application/x-block-payload';
 const DRAG_DEMO_BLOCK_MIME = 'application/x-demo-block-id';
+const CRATE_SHIMMER_DURATION_MS = 760;
+const DEMO_HINT_IDLE_MS = 5000;
 
 function beginCustomDrag(node, payload) {
   customDragInProgress = true;
@@ -135,6 +137,19 @@ function clearCustomDragState() {
   document.body.classList.remove('custom-drag-active');
   if (customDragSourceNode) customDragSourceNode.classList.remove('dragging');
   customDragSourceNode = null;
+}
+
+function maybeAnimateCrateCompletion(node, crateKey, filledSlots, totalSlots, completionState) {
+  if (!node || !completionState || totalSlots <= 0) return;
+  const isComplete = filledSlots >= totalSlots;
+  const wasComplete = completionState.get(crateKey) === true;
+  if (isComplete && !wasComplete && completionState.initialized) {
+    node.classList.remove('crate-complete-shimmer');
+    void node.offsetWidth;
+    node.classList.add('crate-complete-shimmer');
+    window.setTimeout(() => node.classList.remove('crate-complete-shimmer'), CRATE_SHIMMER_DURATION_MS);
+  }
+  completionState.set(crateKey, isComplete);
 }
 
 function parseDragPayload(raw) {
@@ -949,7 +964,9 @@ function makeDemoRuntime() {
     crates: initialDemoCrates.map((crate) => ({ ...crate })),
     blocks: { available: new Set(), allocated: new Map() },
     time: { month: 1, progress: 0 },
-    nextBlockSerial: 0
+    nextBlockSerial: 0,
+    hint: { lastInteractionAt: Date.now(), lastHintAt: 0, timerId: null },
+    crateCompletionState: Object.assign(new Map(), { initialized: false })
   };
 }
 
@@ -966,6 +983,16 @@ function getEmptySurveyValues() {
 
 function getSelectedCustomRuntime() {
   return state.customRuntimes.find((runtime) => runtime.stackId === state.selectedCustomStackId) || null;
+}
+
+function ensurePortfolioAnimationState(portfolio) {
+  if (!portfolio) return;
+  if (!portfolio.crateCompletionState || typeof portfolio.crateCompletionState.get !== 'function') {
+    portfolio.crateCompletionState = Object.assign(new Map(), { initialized: false });
+  }
+  if (typeof portfolio.crateCompletionState.initialized !== 'boolean') {
+    portfolio.crateCompletionState.initialized = false;
+  }
 }
 
 function saveAllCustomStacks() {
@@ -1215,7 +1242,7 @@ const Renderer = {
     }
   },
 
-  renderCrates(crates, portfolio, editable) {
+  renderCrates(crates, portfolio, editable, cardId = 'active-card') {
     nodes.customCrateGrid.innerHTML = '';
     crates.forEach((crate) => {
       const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
@@ -1238,6 +1265,7 @@ const Renderer = {
           bindDragPayload(fillNode, { type: 'full-block', fromCrateId: crate.crateId });
         }
       });
+      maybeAnimateCrateCompletion(node, `${cardId}:${crate.crateId}`, crateStats.fullBlocks, crate.slotTarget, portfolio.crateCompletionState);
 
       const rate = portfolio.cratesTemplate.find((entry) => entry.crateId === crate.crateId)?.overflowRatePerMinute ?? 1;
       const summary = document.createElement('p');
@@ -1270,9 +1298,11 @@ const Renderer = {
 
       nodes.customCrateGrid.appendChild(node);
     });
+    portfolio.crateCompletionState.initialized = true;
   },
 
   renderStackView(portfolio, card, cardIndex) {
+    ensurePortfolioAnimationState(portfolio);
     const editable = cardIndex === portfolio.activeCardIndex;
     const progress = getStackCashProgressPercent(portfolio);
     nodes.customMonthIndicator.textContent = `Simulator Month ${portfolio.monthCounter}`;
@@ -1306,10 +1336,61 @@ const Renderer = {
     });
 
     Renderer.renderUnallocatedBlocks(portfolio, editable);
-    Renderer.renderCrates(card.crates, portfolio, editable);
+    Renderer.renderCrates(card.crates, portfolio, editable, card.cardId);
     renderTradeLog(nodes.tradeLog, portfolio.tradingEngine?.log || []);
   }
 };
+
+
+function getDemoHintTargetCrate(runtime) {
+  const availableCrates = runtime.crates.filter((crate) => crate.blocksFilled < crate.capacity);
+  if (!availableCrates.length) return null;
+  return availableCrates[availableCrates.length - 1];
+}
+
+function clearDemoHintTimer(runtime) {
+  if (!runtime?.hint?.timerId) return;
+  window.clearTimeout(runtime.hint.timerId);
+  runtime.hint.timerId = null;
+}
+
+function runDemoDragHint(runtime) {
+  const blockNode = nodes.availableBlocks.querySelector('.block');
+  if (!blockNode) return false;
+  const targetCrate = getDemoHintTargetCrate(runtime);
+  if (!targetCrate) return false;
+
+  blockNode.classList.remove('demo-hint-block');
+  void blockNode.offsetWidth;
+  blockNode.classList.add('demo-hint-block');
+
+  const targetNode = nodes.crateGrid.querySelector(`[data-demo-crate="${targetCrate.name}"]`);
+  if (targetNode) {
+    targetNode.classList.remove('demo-hint-target');
+    void targetNode.offsetWidth;
+    targetNode.classList.add('demo-hint-target');
+  }
+
+  window.setTimeout(() => {
+    blockNode.classList.remove('demo-hint-block');
+    if (targetNode) targetNode.classList.remove('demo-hint-target');
+  }, 1800);
+
+  runtime.hint.lastHintAt = Date.now();
+  return true;
+}
+
+function scheduleDemoDragHint(runtime) {
+  clearDemoHintTimer(runtime);
+  if (!runtime?.blocks?.available?.size) return;
+  const anchor = Math.max(runtime.hint.lastInteractionAt || 0, runtime.hint.lastHintAt || 0);
+  const elapsed = Date.now() - anchor;
+  const delay = Math.max(0, DEMO_HINT_IDLE_MS - elapsed);
+  runtime.hint.timerId = window.setTimeout(() => {
+    runtime.hint.timerId = null;
+    if (runDemoDragHint(runtime)) scheduleDemoDragHint(runtime);
+  }, delay);
+}
 
 function renderDemo() {
   const runtime = state.demo;
@@ -1322,10 +1403,13 @@ function renderDemo() {
   runtime.blocks.available.forEach((blockId) => {
     const block = document.createElement('div');
     block.className = 'block';
+    block.dataset.demoBlockId = blockId;
     block.id = blockId;
     block.draggable = true;
     block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
     block.addEventListener('dragstart', (event) => {
+      runtime.hint.lastInteractionAt = Date.now();
+      clearDemoHintTimer(runtime);
       event.dataTransfer.setData(DRAG_DEMO_BLOCK_MIME, block.id);
       event.dataTransfer.effectAllowed = 'move';
     });
@@ -1335,6 +1419,7 @@ function renderDemo() {
   nodes.crateGrid.innerHTML = '';
   runtime.crates.forEach((crate) => {
     const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
+    node.dataset.demoCrate = crate.name;
     node.querySelector('.crate-label').textContent = crate.name;
     node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.capacity}`;
     const slots = node.querySelector('.slots');
@@ -1342,6 +1427,7 @@ function renderDemo() {
     for (let i = 0; i < crate.blocksFilled; i += 1) slotStates.push({ type: 'cash' });
     while (slotStates.length < crate.capacity) slotStates.push({ type: 'empty' });
     renderCrateGrid(slots, crate.capacity, slotStates);
+    maybeAnimateCrateCompletion(node, `demo:${crate.name}`, crate.blocksFilled, crate.capacity, runtime.crateCompletionState);
 
     node.addEventListener('dragover', (event) => { if (crate.blocksFilled < crate.capacity) event.preventDefault(); });
     node.addEventListener('drop', (event) => {
@@ -1350,11 +1436,16 @@ function renderDemo() {
       if (!runtime.blocks.available.has(blockId) || crate.blocksFilled >= crate.capacity) return;
       crate.blocksFilled += 1;
       runtime.blocks.available.delete(blockId);
+      runtime.hint.lastInteractionAt = Date.now();
+      clearDemoHintTimer(runtime);
       render();
     });
 
     nodes.crateGrid.appendChild(node);
   });
+
+  runtime.crateCompletionState.initialized = true;
+  scheduleDemoDragHint(runtime);
 }
 
 const SURVEY_TOTAL_STEPS = 4;
