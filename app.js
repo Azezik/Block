@@ -342,9 +342,38 @@ function getActiveStackCard(portfolio) {
   return portfolio.stackCards[portfolio.activeCardIndex] || null;
 }
 
+function getCanonicalBlockValue(portfolio) {
+  return normalizeBlockValue(
+    portfolio?.spreadsheet?.template?.blockValue
+      || portfolio?.blockValue
+      || portfolio?.monthlyContribution
+  );
+}
+
+function syncPortfolioBlockValue(portfolio) {
+  const blockValue = getCanonicalBlockValue(portfolio);
+  portfolio.blockValue = blockValue;
+  if (portfolio?.spreadsheet?.template) {
+    portfolio.spreadsheet.template.blockValue = blockValue;
+  }
+  if (portfolio?.moneyEngine) {
+    portfolio.moneyEngine.blockValue = blockValue;
+  }
+  return blockValue;
+}
+
+function convertCashDenomination(cashValueDollars, blockValue) {
+  const safeValue = Math.max(0, Number(cashValueDollars) || 0);
+  const safeBlockValue = normalizeBlockValue(blockValue);
+  const waitingRoomBlocks = Math.floor(safeValue / safeBlockValue);
+  const cashBalance = Math.max(0, safeValue - (waitingRoomBlocks * safeBlockValue));
+  return { waitingRoomBlocks, cashBalance };
+}
+
 
 function syncPortfolioFromSpreadsheet(portfolio, options = {}) {
   if (!portfolio?.spreadsheet) return;
+  const blockValue = syncPortfolioBlockValue(portfolio);
   const projected = runtimeFromSpreadsheet(portfolio.spreadsheet, portfolio.stackCards || []);
   portfolio.stackCards = projected.stackCards;
   portfolio.waitingRoomBlocks = projected.waitingRoomBlocks;
@@ -361,7 +390,7 @@ function syncPortfolioFromSpreadsheet(portfolio, options = {}) {
       requestedPercent: template.targetPercent,
       slotTarget: template.slotTarget,
       overflowRatePerMinute: template.overflowRatePerMinute,
-      existingAmount: (Math.max(0, Number(position.fullBlocks || 0)) * portfolio.blockValue) + Math.max(0, Number(position.overflowDollars || 0)),
+      existingAmount: (Math.max(0, Number(position.fullBlocks || 0)) * blockValue) + Math.max(0, Number(position.overflowDollars || 0)),
       startingFilledBlocks: Math.max(0, Number(position.fullBlocks || 0)),
       overflowDollars: Math.max(0, Number(position.overflowDollars || 0))
     };
@@ -736,7 +765,7 @@ function checkAndAdvanceCompletedCard(portfolio) {
 }
 
 function updateMoneyEngineCrateTotals(portfolio, crateId, deltaDollars) {
-  const blockValue = normalizeBlockValue(portfolio.blockValue || portfolio.monthlyContribution);
+  const blockValue = syncPortfolioBlockValue(portfolio);
 
   if (portfolio.spreadsheet?.positions?.[crateId]) {
     const pos = portfolio.spreadsheet.positions[crateId];
@@ -783,8 +812,7 @@ function updateMoneyEngineCrateTotals(portfolio, crateId, deltaDollars) {
 
 const StackEngine = {
   tickStack(stack) {
-    const blockValue = normalizeBlockValue(stack.blockValue || stack.monthlyContribution);
-    stack.blockValue = blockValue;
+    const blockValue = syncPortfolioBlockValue(stack);
     stack.elapsedMsInPeriod += TICK_MS;
     while (stack.elapsedMsInPeriod >= MONTH_DURATION_MS) {
       stack.monthCounter += 1;
@@ -797,6 +825,7 @@ const StackEngine = {
     }
 
     if (!stack.spreadsheet) stack.spreadsheet = spreadsheetFromRuntime(stack);
+    stack.spreadsheet.template.blockValue = blockValue;
     stack.spreadsheet.cash.waitingRoomBlocks = Math.max(0, Number(stack.waitingRoomBlocks || 0));
     stack.spreadsheet.cash.cashBalance = Math.max(0, Number(stack.cashBalance || 0));
 
@@ -818,13 +847,14 @@ const StackEngine = {
     const activeCard = getActiveStackCard(portfolio);
     if (!activeCard || portfolio.waitingRoomBlocks <= 0) return false;
     if (!portfolio.spreadsheet) portfolio.spreadsheet = spreadsheetFromRuntime(portfolio);
+    const blockValue = syncPortfolioBlockValue(portfolio);
     const ok = applyBuyToSpreadsheet(portfolio.spreadsheet, crateId, 1);
     if (!ok) return false;
 
     syncPortfolioFromSpreadsheet(portfolio, { keepActiveCardIndex: true });
-    updateMoneyEngineCrateTotals(portfolio, crateId, portfolio.blockValue);
+    updateMoneyEngineCrateTotals(portfolio, crateId, blockValue);
     const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
-    logBuy(portfolio.tradingEngine, { investmentId: crateId, crateName, amount: portfolio.blockValue, meta: { source: 'drag-buy' } });
+    logBuy(portfolio.tradingEngine, { investmentId: crateId, crateName, amount: blockValue, meta: { source: 'drag-buy' } });
     checkAndAdvanceCompletedCard(portfolio);
     return true;
   },
@@ -833,14 +863,15 @@ const StackEngine = {
     const activeCard = getActiveStackCard(portfolio);
     if (!activeCard) return false;
     if (!portfolio.spreadsheet) portfolio.spreadsheet = spreadsheetFromRuntime(portfolio);
+    const blockValue = syncPortfolioBlockValue(portfolio);
 
     const ok = applySellToSpreadsheet(portfolio.spreadsheet, crateId, 1);
     if (!ok) return false;
 
     syncPortfolioFromSpreadsheet(portfolio, { keepActiveCardIndex: true });
-    updateMoneyEngineCrateTotals(portfolio, crateId, -portfolio.blockValue);
+    updateMoneyEngineCrateTotals(portfolio, crateId, -blockValue);
     const crateName = portfolio.cratesTemplate.find((entry) => entry.crateId === crateId)?.name || 'UNKNOWN';
-    logSell(portfolio.tradingEngine, { investmentId: crateId, crateName, amount: portfolio.blockValue, meta: { source: 'drag-sell' } });
+    logSell(portfolio.tradingEngine, { investmentId: crateId, crateName, amount: blockValue, meta: { source: 'drag-sell' } });
     checkAndAdvanceCompletedCard(portfolio);
     return true;
   },
@@ -961,6 +992,10 @@ const portfolioSettingsUI = createPortfolioSettings({
     const idx = state.customRuntimes.findIndex((item) => item.stackId === draft.stackId);
     if (idx < 0) return 'Portfolio not found.';
     const prev = state.customRuntimes[idx];
+    const prevBlockValue = getCanonicalBlockValue(prev);
+    const nextBlockValue = normalizeBlockValue(draft.monthlyContribution);
+    const totalCashValue = (Math.max(0, Number(prev.waitingRoomBlocks || 0)) * prevBlockValue)
+      + Math.max(0, Number(prev.cashBalance || 0));
     const suggestedExistingAmountsByCrateId = new Map(computeSuggestedExistingAmounts(prev).map((item) => [item.crateId, item.suggestedAmount]));
     draft.investments = draft.investments.map((investment) => ({
       ...investment,
@@ -968,8 +1003,9 @@ const portfolioSettingsUI = createPortfolioSettings({
     }));
     const rebuilt = StackRules.normalizeStackDraft(draft);
     const updated = toPortfolioModel(rebuilt);
-    updated.cashBalance = prev.cashBalance;
-    updated.waitingRoomBlocks = prev.waitingRoomBlocks;
+    const convertedCash = convertCashDenomination(totalCashValue, nextBlockValue);
+    updated.cashBalance = convertedCash.cashBalance;
+    updated.waitingRoomBlocks = convertedCash.waitingRoomBlocks;
     updated.monthCounter = prev.monthCounter;
     updated.elapsedMsInPeriod = prev.elapsedMsInPeriod;
     updated.tradingEngine = prev.tradingEngine?.log ? {
@@ -978,12 +1014,14 @@ const portfolioSettingsUI = createPortfolioSettings({
     } : createTradingEngineState();
     updated.overflowEngine = ensureOverflowEngineCrates(prev.overflowEngine, updated.cratesTemplate);
     if (!updated.spreadsheet) updated.spreadsheet = spreadsheetFromRuntime(updated);
+    updated.spreadsheet.template.blockValue = nextBlockValue;
     updated.spreadsheet.cash.waitingRoomBlocks = updated.waitingRoomBlocks;
     updated.spreadsheet.cash.cashBalance = updated.cashBalance;
     updated.spreadsheet.ledger.events = Array.isArray(updated.tradingEngine.events) ? updated.tradingEngine.events : [];
 
     const nextExistingAmountByCrateId = new Map(draft.investments.map((investment) => [investment.crateId, Math.max(0, Number(investment.existingAmount || 0))]));
     reconcileExistingAmountsWithPortfolio(updated, nextExistingAmountByCrateId);
+    syncPortfolioBlockValue(updated);
 
     syncPortfolioFromSpreadsheet(updated, { keepActiveCardIndex: true });
     syncPortfolioCardState(updated);
