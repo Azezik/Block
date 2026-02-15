@@ -1,3 +1,4 @@
+import { initLandingScrollStory } from './landing/landingScrollStory.js';
 import { computeCrateLayout } from './crateLayoutEngine.js';
 import { createStackSelector } from './stackSelector.js';
 import { createStackCarousel } from './stackCarousel.js';
@@ -1756,6 +1757,8 @@ document.addEventListener('keydown', (event) => {
     SurveyUI.goBack();
   }
 });
+
+initLandingScrollStory();
 
 state.customRuntimes = StackStorage.loadStacks();
 if (state.customRuntimes[0]) state.selectedCustomStackId = state.customRuntimes[0].stackId;
