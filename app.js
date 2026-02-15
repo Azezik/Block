@@ -122,8 +122,8 @@ let customDragSourceNode = null;
 const DRAG_PAYLOAD_MIME = 'application/x-block-payload';
 const DRAG_DEMO_BLOCK_MIME = 'application/x-demo-block-id';
 const CRATE_SHIMMER_DURATION_MS = 760;
-const DEMO_HINT_IDLE_MS = 5000;
-const DEMO_HINT_ACTIVE_MS = 3000;
+const DEMO_HINT_IDLE_MS = 3000;
+const DEMO_HINT_ACTIVE_MS = 2400;
 
 function beginCustomDrag(node, payload) {
   customDragInProgress = true;
@@ -1347,13 +1347,22 @@ const Renderer = {
 function getDemoHintTargetCrate(runtime) {
   const availableCrates = runtime.crates.filter((crate) => crate.blocksFilled < crate.capacity);
   if (!availableCrates.length) return null;
-  return availableCrates[availableCrates.length - 1];
+  return availableCrates[0];
 }
 
-function clearDemoHintTimer(runtime) {
-  if (!runtime?.hint?.timerId) return;
-  window.clearTimeout(runtime.hint.timerId);
-  runtime.hint.timerId = null;
+function resetDemoHintVisuals() {
+  const highlightedBlock = nodes.availableBlocks.querySelector('.demo-hint-block');
+  if (highlightedBlock) highlightedBlock.classList.remove('demo-hint-block');
+  const highlightedCrate = nodes.crateGrid.querySelector('.demo-hint-target');
+  if (highlightedCrate) highlightedCrate.classList.remove('demo-hint-target');
+}
+
+function clearDemoHintTimer(runtime, { clearVisuals = false } = {}) {
+  if (runtime?.hint?.timerId) {
+    window.clearTimeout(runtime.hint.timerId);
+    runtime.hint.timerId = null;
+  }
+  if (clearVisuals) resetDemoHintVisuals();
 }
 
 function runDemoDragHint(runtime) {
@@ -1384,8 +1393,11 @@ function runDemoDragHint(runtime) {
 }
 
 function scheduleDemoDragHint(runtime, delayMs = DEMO_HINT_IDLE_MS) {
-  clearDemoHintTimer(runtime);
-  if (!runtime?.blocks?.available?.size) return;
+  if (!runtime?.blocks?.available?.size) {
+    clearDemoHintTimer(runtime, { clearVisuals: true });
+    return;
+  }
+  if (runtime?.hint?.timerId) return;
   runtime.hint.timerId = window.setTimeout(() => {
     runtime.hint.timerId = null;
     runDemoDragHint(runtime);
@@ -1410,7 +1422,7 @@ function renderDemo() {
     block.draggable = true;
     block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
     block.addEventListener('dragstart', (event) => {
-      clearDemoHintTimer(runtime);
+      clearDemoHintTimer(runtime, { clearVisuals: true });
       event.dataTransfer.setData(DRAG_DEMO_BLOCK_MIME, block.id);
       event.dataTransfer.effectAllowed = 'move';
     });
@@ -1437,7 +1449,7 @@ function renderDemo() {
       if (!runtime.blocks.available.has(blockId) || crate.blocksFilled >= crate.capacity) return;
       crate.blocksFilled += 1;
       runtime.blocks.available.delete(blockId);
-      clearDemoHintTimer(runtime);
+      clearDemoHintTimer(runtime, { clearVisuals: true });
       render();
     });
 
