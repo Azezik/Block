@@ -3,6 +3,14 @@ import {
   runtimeFromSpreadsheet
 } from './portfolioSpreadsheet.js';
 
+function getCanonicalBlockValue(portfolio) {
+  return Math.max(0, Number(
+    portfolio?.spreadsheet?.template?.blockValue
+      ?? portfolio?.blockValue
+      ?? portfolio?.monthlyContribution
+  ) || 0);
+}
+
 export function getCrateValue(crateState, blockValue) {
   const safeBlockValue = Math.max(0, Number(blockValue) || 0);
   const filled = Math.max(0, Number(crateState?.filled) || 0);
@@ -31,7 +39,7 @@ export function getTotalInvestedValue(portfolio) {
     }, 0);
   }
 
-  const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const safeBlockValue = getCanonicalBlockValue(portfolio);
   if (!Array.isArray(portfolio?.stackCards)) return 0;
   return portfolio.stackCards.reduce((stackSum, stackCard) => (
     stackSum + getCurrentStackValue(stackCard, safeBlockValue)
@@ -39,7 +47,7 @@ export function getTotalInvestedValue(portfolio) {
 }
 
 export function getTotalCashValue(portfolio) {
-  const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const safeBlockValue = getCanonicalBlockValue(portfolio);
   const waitingRoomBlocks = Math.max(0, Number(
     portfolio?.spreadsheet?.cash?.waitingRoomBlocks ?? portfolio?.waitingRoomBlocks
   ) || 0);
@@ -52,7 +60,7 @@ export function getTotalPortfolioValue(portfolio) {
 
 export function getFullStackValue(portfolio) {
   if (!Array.isArray(portfolio?.cratesTemplate)) return 0;
-  const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const safeBlockValue = getCanonicalBlockValue(portfolio);
   return portfolio.cratesTemplate.reduce((sum, crate) => {
     const slotTarget = Math.max(0, Number(crate?.slotTarget) || 0);
     return sum + (slotTarget * safeBlockValue);
@@ -61,7 +69,7 @@ export function getFullStackValue(portfolio) {
 
 export function getQuickProgressReport(portfolio) {
   const activeCard = portfolio?.stackCards?.[portfolio?.activeCardIndex] || null;
-  const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const blockValue = getCanonicalBlockValue(portfolio);
 
   const perCrate = (portfolio?.cratesTemplate || []).map((crateTemplate) => {
     const activeCrate = activeCard?.crates?.find((crate) => crate.crateId === crateTemplate.crateId) || {
@@ -103,7 +111,7 @@ export function getMoneyFlowRates(portfolio) {
 
 export function computeSuggestedExistingAmounts(portfolio) {
   if (portfolio?.spreadsheet?.template?.investments) {
-    const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+    const blockValue = getCanonicalBlockValue(portfolio);
     return portfolio.spreadsheet.template.investments.map((investment) => {
       const pos = portfolio.spreadsheet.positions[investment.investmentId] || { fullBlocks: 0, overflowDollars: 0 };
       const suggestedAmount = (Math.max(0, Number(pos.fullBlocks || 0)) * blockValue) + Math.max(0, Number(pos.overflowDollars || 0));
@@ -116,7 +124,7 @@ export function computeSuggestedExistingAmounts(portfolio) {
     });
   }
 
-  const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const blockValue = getCanonicalBlockValue(portfolio);
   const filledByCrateId = new Map();
 
   (portfolio?.stackCards || []).forEach((card) => {
@@ -151,7 +159,7 @@ export function computeExistingAmountDelta(currentAmount, nextAmount) {
 }
 
 export function reconcileExistingAmountsWithPortfolio(portfolio, nextExistingAmountByCrateId) {
-  const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+  const blockValue = getCanonicalBlockValue(portfolio);
 
   if (portfolio?.spreadsheet) {
     applyExistingAmountsToSpreadsheet(portfolio.spreadsheet, nextExistingAmountByCrateId);
