@@ -210,6 +210,45 @@ body.custom-drag-active .full-block {
   align-items: center;
 }
 
+
+.stack-dots-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: min(100%, 320px);
+  overflow-x: auto;
+  padding: 0.1rem 0.1rem 0.2rem;
+  scrollbar-width: thin;
+}
+
+.stack-progress-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 0;
+  background: #22c55e;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.stack-progress-dot.is-complete {
+  background: #facc15;
+}
+
+.stack-progress-dot.is-active::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.55);
+}
+
+.stack-progress-dot:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
 .crate-header-actions {
   display: flex;
   align-items: center;
