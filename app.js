@@ -967,7 +967,7 @@ function makeDemoRuntime() {
     blocks: { available: new Set(), allocated: new Map() },
     time: { month: 1, progress: 0 },
     nextBlockSerial: 0,
-    hint: { timerId: null },
+    hint: { timerId: null, isActive: false, targetCrateName: null },
     crateCompletionState: Object.assign(new Map(), { initialized: false })
   };
 }
@@ -1350,7 +1350,11 @@ function getDemoHintTargetCrate(runtime) {
   return availableCrates[0];
 }
 
-function resetDemoHintVisuals() {
+function resetDemoHintVisuals(runtime) {
+  if (runtime?.hint) {
+    runtime.hint.isActive = false;
+    runtime.hint.targetCrateName = null;
+  }
   const highlightedBlock = nodes.availableBlocks.querySelector('.demo-hint-block');
   if (highlightedBlock) highlightedBlock.classList.remove('demo-hint-block');
   const highlightedCrate = nodes.crateGrid.querySelector('.demo-hint-target');
@@ -1362,7 +1366,7 @@ function clearDemoHintTimer(runtime, { clearVisuals = false } = {}) {
     window.clearTimeout(runtime.hint.timerId);
     runtime.hint.timerId = null;
   }
-  if (clearVisuals) resetDemoHintVisuals();
+  if (clearVisuals) resetDemoHintVisuals(runtime);
 }
 
 function runDemoDragHint(runtime) {
@@ -1370,6 +1374,9 @@ function runDemoDragHint(runtime) {
   if (!blockNode) return false;
   const targetCrate = getDemoHintTargetCrate(runtime);
   if (!targetCrate) return false;
+
+  runtime.hint.isActive = true;
+  runtime.hint.targetCrateName = targetCrate.name;
 
   blockNode.classList.remove('demo-hint-block');
   void blockNode.offsetWidth;
@@ -1383,8 +1390,7 @@ function runDemoDragHint(runtime) {
   }
 
   runtime.hint.timerId = window.setTimeout(() => {
-    blockNode.classList.remove('demo-hint-block');
-    if (targetNode) targetNode.classList.remove('demo-hint-target');
+    resetDemoHintVisuals(runtime);
     runtime.hint.timerId = null;
     scheduleDemoDragHint(runtime, DEMO_HINT_IDLE_MS);
   }, DEMO_HINT_ACTIVE_MS);
@@ -1414,6 +1420,7 @@ function renderDemo() {
   if (demoInstruction) demoInstruction.classList.toggle('hidden', runtime.hint.hasInteracted);
 
   nodes.availableBlocks.innerHTML = '';
+  let hintedBlockApplied = false;
   runtime.blocks.available.forEach((blockId) => {
     const block = document.createElement('div');
     block.className = 'block';
@@ -1421,6 +1428,10 @@ function renderDemo() {
     block.id = blockId;
     block.draggable = true;
     block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
+    if (runtime.hint.isActive && !hintedBlockApplied) {
+      block.classList.add('demo-hint-block');
+      hintedBlockApplied = true;
+    }
     block.addEventListener('dragstart', (event) => {
       clearDemoHintTimer(runtime, { clearVisuals: true });
       event.dataTransfer.setData(DRAG_DEMO_BLOCK_MIME, block.id);
@@ -1433,6 +1444,9 @@ function renderDemo() {
   runtime.crates.forEach((crate) => {
     const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.demoCrate = crate.name;
+    if (runtime.hint.isActive && runtime.hint.targetCrateName === crate.name) {
+      node.classList.add('demo-hint-target');
+    }
     node.querySelector('.crate-label').textContent = crate.name;
     node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.capacity}`;
     const slots = node.querySelector('.slots');
