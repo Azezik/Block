@@ -124,7 +124,7 @@ body.modal-open {
 }
 
 .block.demo-hint-block {
-  animation: demoHintBob 900ms ease-in-out infinite, demoHintGlow 1500ms ease-in-out infinite;
+  animation: demoHintJiggle 1400ms ease-in-out infinite, demoHintGlow 1800ms ease-in-out infinite;
 }
 
 .crate.demo-hint-target {
@@ -146,9 +146,11 @@ body.modal-open {
   pointer-events: none;
 }
 
-@keyframes demoHintBob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
+@keyframes demoHintJiggle {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  25% { transform: translate3d(-1px, -2px, 0) rotate(-1deg); }
+  50% { transform: translate3d(1px, -3px, 0) rotate(1deg); }
+  75% { transform: translate3d(-1px, -1px, 0) rotate(-0.6deg); }
 }
 
 @keyframes demoHintGlow {

@@ -122,8 +122,8 @@ let customDragSourceNode = null;
 const DRAG_PAYLOAD_MIME = 'application/x-block-payload';
 const DRAG_DEMO_BLOCK_MIME = 'application/x-demo-block-id';
 const CRATE_SHIMMER_DURATION_MS = 760;
-const DEMO_HINT_IDLE_MS = 5000;
-const DEMO_HINT_ACTIVE_MS = 3000;
+const DEMO_HINT_IDLE_MS = 3000;
+const DEMO_HINT_ACTIVE_MS = 2400;
 
 function beginCustomDrag(node, payload) {
   customDragInProgress = true;
@@ -967,7 +967,7 @@ function makeDemoRuntime() {
     blocks: { available: new Set(), allocated: new Map() },
     time: { month: 1, progress: 0 },
     nextBlockSerial: 0,
-    hint: { timerId: null },
+    hint: { timerId: null, isActive: false, targetCrateName: null },
     crateCompletionState: Object.assign(new Map(), { initialized: false })
   };
 }
@@ -1347,13 +1347,26 @@ const Renderer = {
 function getDemoHintTargetCrate(runtime) {
   const availableCrates = runtime.crates.filter((crate) => crate.blocksFilled < crate.capacity);
   if (!availableCrates.length) return null;
-  return availableCrates[availableCrates.length - 1];
+  return availableCrates[0];
 }
 
-function clearDemoHintTimer(runtime) {
-  if (!runtime?.hint?.timerId) return;
-  window.clearTimeout(runtime.hint.timerId);
-  runtime.hint.timerId = null;
+function resetDemoHintVisuals(runtime) {
+  if (runtime?.hint) {
+    runtime.hint.isActive = false;
+    runtime.hint.targetCrateName = null;
+  }
+  const highlightedBlock = nodes.availableBlocks.querySelector('.demo-hint-block');
+  if (highlightedBlock) highlightedBlock.classList.remove('demo-hint-block');
+  const highlightedCrate = nodes.crateGrid.querySelector('.demo-hint-target');
+  if (highlightedCrate) highlightedCrate.classList.remove('demo-hint-target');
+}
+
+function clearDemoHintTimer(runtime, { clearVisuals = false } = {}) {
+  if (runtime?.hint?.timerId) {
+    window.clearTimeout(runtime.hint.timerId);
+    runtime.hint.timerId = null;
+  }
+  if (clearVisuals) resetDemoHintVisuals(runtime);
 }
 
 function runDemoDragHint(runtime) {
@@ -1361,6 +1374,9 @@ function runDemoDragHint(runtime) {
   if (!blockNode) return false;
   const targetCrate = getDemoHintTargetCrate(runtime);
   if (!targetCrate) return false;
+
+  runtime.hint.isActive = true;
+  runtime.hint.targetCrateName = targetCrate.name;
 
   blockNode.classList.remove('demo-hint-block');
   void blockNode.offsetWidth;
@@ -1374,8 +1390,7 @@ function runDemoDragHint(runtime) {
   }
 
   runtime.hint.timerId = window.setTimeout(() => {
-    blockNode.classList.remove('demo-hint-block');
-    if (targetNode) targetNode.classList.remove('demo-hint-target');
+    resetDemoHintVisuals(runtime);
     runtime.hint.timerId = null;
     scheduleDemoDragHint(runtime, DEMO_HINT_IDLE_MS);
   }, DEMO_HINT_ACTIVE_MS);
@@ -1384,8 +1399,11 @@ function runDemoDragHint(runtime) {
 }
 
 function scheduleDemoDragHint(runtime, delayMs = DEMO_HINT_IDLE_MS) {
-  clearDemoHintTimer(runtime);
-  if (!runtime?.blocks?.available?.size) return;
+  if (!runtime?.blocks?.available?.size) {
+    clearDemoHintTimer(runtime, { clearVisuals: true });
+    return;
+  }
+  if (runtime?.hint?.timerId) return;
   runtime.hint.timerId = window.setTimeout(() => {
     runtime.hint.timerId = null;
     runDemoDragHint(runtime);
@@ -1402,6 +1420,7 @@ function renderDemo() {
   if (demoInstruction) demoInstruction.classList.toggle('hidden', runtime.hint.hasInteracted);
 
   nodes.availableBlocks.innerHTML = '';
+  let hintedBlockApplied = false;
   runtime.blocks.available.forEach((blockId) => {
     const block = document.createElement('div');
     block.className = 'block';
@@ -1409,8 +1428,12 @@ function renderDemo() {
     block.id = blockId;
     block.draggable = true;
     block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
+    if (runtime.hint.isActive && !hintedBlockApplied) {
+      block.classList.add('demo-hint-block');
+      hintedBlockApplied = true;
+    }
     block.addEventListener('dragstart', (event) => {
-      clearDemoHintTimer(runtime);
+      clearDemoHintTimer(runtime, { clearVisuals: true });
       event.dataTransfer.setData(DRAG_DEMO_BLOCK_MIME, block.id);
       event.dataTransfer.effectAllowed = 'move';
     });
@@ -1421,6 +1444,9 @@ function renderDemo() {
   runtime.crates.forEach((crate) => {
     const node = nodes.crateTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.demoCrate = crate.name;
+    if (runtime.hint.isActive && runtime.hint.targetCrateName === crate.name) {
+      node.classList.add('demo-hint-target');
+    }
     node.querySelector('.crate-label').textContent = crate.name;
     node.querySelector('.crate-count').textContent = `${crate.blocksFilled}/${crate.capacity}`;
     const slots = node.querySelector('.slots');
@@ -1437,7 +1463,7 @@ function renderDemo() {
       if (!runtime.blocks.available.has(blockId) || crate.blocksFilled >= crate.capacity) return;
       crate.blocksFilled += 1;
       runtime.blocks.available.delete(blockId);
-      clearDemoHintTimer(runtime);
+      clearDemoHintTimer(runtime, { clearVisuals: true });
       render();
     });
 
