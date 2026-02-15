@@ -16,7 +16,8 @@ const STORY_MARKUP = `
       </div>
     </div>
 
-    <section class="story-beat" data-reveal>
+    <section class="story-beat story-chapter story-problem" data-reveal>
+      <h2>Why investing feels hard (even when you’re disciplined)</h2>
       <p>Most people know they should invest.</p>
       <p>What stops them isn’t discipline — it’s uncertainty.</p>
       <p>You’re told small decisions matter: where to put money, when to adjust, how much each should hold.</p>
@@ -24,30 +25,33 @@ const STORY_MARKUP = `
       <p>But no one shows you how these feel in practice — so every choice feels risky, and not starting feels safer.</p>
     </section>
 
-    <section class="story-beat" data-reveal>
+    <section class="story-beat story-chapter story-shift" data-reveal>
+      <h2>Stop learning. Start doing.</h2>
       <p>Stakblox removes that fog.</p>
       <p>Instead of studying investing, you do investing — inside a visual system your brain instantly understands.</p>
+      <p>Less theory. More action.</p>
     </section>
 
-    <section class="story-beat" data-reveal>
+    <section class="story-beat story-chapter story-on-ramp" data-reveal>
+      <h2>You already save monthly. Here’s the missing step.</h2>
       <p>You already set aside money each month.</p>
       <p>The hard part isn’t saving — it’s knowing what to do with it.</p>
       <p>Stakblox is your on-ramp.</p>
       <p>Each month becomes a clear, repeatable action — no more decisions, just motion.</p>
     </section>
 
-    <section class="story-beat story-how" data-reveal>
+    <section class="story-beat story-chapter story-how" data-reveal>
       <h2>How it works</h2>
       <p>You don’t start with charts or terms.</p>
       <p>You start with blocks.</p>
       <div class="how-layout">
         <ol class="how-steps" aria-label="How it works steps">
-          <li data-reveal-item>Receive a block.</li>
-          <li data-reveal-item>Place it in the lowest crate.</li>
-          <li data-reveal-item>Repeat.</li>
-          <li data-reveal-item>Keep the crates level — that’s automatic diversification and balance.</li>
-          <li data-reveal-item>When a stack completes, start the next one the same way.</li>
-          <li data-reveal-item>No math. No second-guessing. Just maintain the structure.</li>
+          <li data-reveal-item><strong>1</strong><span>Receive a block.</span></li>
+          <li data-reveal-item><strong>2</strong><span>Place it in the lowest crate.</span></li>
+          <li data-reveal-item><strong>3</strong><span>Repeat.</span></li>
+          <li data-reveal-item><strong>4</strong><span>Keep the crates level — that’s automatic diversification and balance.</span></li>
+          <li data-reveal-item><strong>5</strong><span>When a stack completes, start the next one the same way.</span></li>
+          <li data-reveal-item><strong>6</strong><span>No math. No second-guessing. Just maintain the structure.</span></li>
         </ol>
         <div class="how-visual" aria-hidden="true">
           <div class="how-crates">
@@ -63,33 +67,23 @@ const STORY_MARKUP = `
       </div>
     </section>
 
-    <section class="story-beat" data-reveal>
-      <h2>What you’ve actually been doing</h2>
-      <div class="translation-grid" role="list" aria-label="Stakblox translation guide">
-        <div class="translation-row" role="listitem" data-reveal-item><strong>Each crate</strong><span>= one investment</span></div>
-        <div class="translation-row" role="listitem" data-reveal-item><strong>Each block</strong><span>= a contribution</span></div>
-        <div class="translation-row" role="listitem" data-reveal-item><strong>Each stack</strong><span>= a balanced portfolio</span></div>
-        <div class="translation-row" role="listitem" data-reveal-item><strong>Keeping crates level</strong><span>= diversification &amp; rebalancing</span></div>
-        <div class="translation-row" role="listitem" data-reveal-item><strong>Building new stacks</strong><span>= continuous investing</span></div>
+    <section class="story-beat story-chapter story-meaning" data-reveal>
+      <h2>What it means in real life</h2>
+      <div class="translation-grid" role="table" aria-label="Stakblox translation guide">
+        <div class="translation-head" role="row">
+          <span role="columnheader">Concept</span>
+          <span role="columnheader">Plain-English meaning</span>
+        </div>
+        <div class="translation-row" role="row" data-reveal-item><strong role="cell">Each crate</strong><span role="cell">one investment</span></div>
+        <div class="translation-row" role="row" data-reveal-item><strong role="cell">Each block</strong><span role="cell">a contribution</span></div>
+        <div class="translation-row" role="row" data-reveal-item><strong role="cell">Each stack</strong><span role="cell">a balanced portfolio</span></div>
+        <div class="translation-row" role="row" data-reveal-item><strong role="cell">Keeping crates level</strong><span role="cell">diversification &amp; rebalancing</span></div>
+        <div class="translation-row" role="row" data-reveal-item><strong role="cell">Building new stacks</strong><span role="cell">continuous investing</span></div>
       </div>
       <p>You’ve performed real portfolio management — without learning the vocabulary first.</p>
       <p>The logic clicks because you felt it before you named it.</p>
-    </section>
-
-    <section class="story-beat" data-reveal>
-      <h2>In real life</h2>
       <p>Every move generates simple instructions you copy to your brokerage account.</p>
       <p>No charts to interpret. No percentages to calculate.</p>
-      <p>You arrange visually, then act on what you already decided.</p>
-      <p>Investing finally feels straightforward.</p>
-      <article class="order-ticket" aria-label="Illustrative trade log">
-        <h3>Monthly instruction log</h3>
-        <ul>
-          <li data-reveal-item>Month 1 · Buy order · $100</li>
-          <li data-reveal-item>Month 1 · Buy order · $100</li>
-          <li data-reveal-item>Month 1 · Buy order · $100</li>
-        </ul>
-      </article>
     </section>
   </section>
 `;
