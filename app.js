@@ -118,6 +118,8 @@ const nodes = {
 let activeCustomDragPayload = null;
 let customDragInProgress = false;
 let customDragSourceNode = null;
+const DRAG_PAYLOAD_MIME = 'application/x-block-payload';
+const DRAG_DEMO_BLOCK_MIME = 'application/x-demo-block-id';
 
 function beginCustomDrag(node, payload) {
   customDragInProgress = true;
@@ -146,19 +148,42 @@ function parseDragPayload(raw) {
 }
 
 function readDragPayload(event) {
-  const rawPayload = event?.dataTransfer?.getData('text/plain');
+  const rawPayload = event?.dataTransfer?.getData(DRAG_PAYLOAD_MIME)
+    || event?.dataTransfer?.getData('text/plain');
   return parseDragPayload(rawPayload) || activeCustomDragPayload;
 }
 
 function bindDragPayload(draggableNode, payload) {
   draggableNode.addEventListener('dragstart', (event) => {
     beginCustomDrag(draggableNode, payload);
-    event.dataTransfer.setData('text/plain', JSON.stringify(payload));
+    event.dataTransfer.setData(DRAG_PAYLOAD_MIME, JSON.stringify(payload));
     event.dataTransfer.effectAllowed = 'move';
   });
   draggableNode.addEventListener('dragend', () => {
     clearCustomDragState();
   });
+}
+
+function isValidCustomDropTarget(target) {
+  return target instanceof Element && Boolean(target.closest('.crate, #customAvailableBlocks'));
+}
+
+document.addEventListener('dragover', (event) => {
+  if (!customDragInProgress) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = isValidCustomDropTarget(event.target) ? 'move' : 'none';
+});
+
+document.addEventListener('drop', (event) => {
+  if (!customDragInProgress || isValidCustomDropTarget(event.target)) return;
+  event.preventDefault();
+  document.querySelectorAll('.over').forEach((node) => node.classList.remove('over'));
+  clearCustomDragState();
+});
+
+function readDemoBlockId(event) {
+  return event?.dataTransfer?.getData(DRAG_DEMO_BLOCK_MIME)
+    || event?.dataTransfer?.getData('text/plain');
 }
 
 function normalizeBlockValue(value) {
@@ -1300,7 +1325,10 @@ function renderDemo() {
     block.id = blockId;
     block.draggable = true;
     block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
-    block.addEventListener('dragstart', (event) => event.dataTransfer.setData('text/plain', block.id));
+    block.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData(DRAG_DEMO_BLOCK_MIME, block.id);
+      event.dataTransfer.effectAllowed = 'move';
+    });
     nodes.availableBlocks.appendChild(block);
   });
 
@@ -1317,7 +1345,8 @@ function renderDemo() {
 
     node.addEventListener('dragover', (event) => { if (crate.blocksFilled < crate.capacity) event.preventDefault(); });
     node.addEventListener('drop', (event) => {
-      const blockId = event.dataTransfer.getData('text/plain');
+      event.preventDefault();
+      const blockId = readDemoBlockId(event);
       if (!runtime.blocks.available.has(blockId) || crate.blocksFilled >= crate.capacity) return;
       crate.blocksFilled += 1;
       runtime.blocks.available.delete(blockId);
