@@ -122,6 +122,7 @@ const DRAG_PAYLOAD_MIME = 'application/x-block-payload';
 const DRAG_DEMO_BLOCK_MIME = 'application/x-demo-block-id';
 const CRATE_SHIMMER_DURATION_MS = 760;
 const DEMO_HINT_IDLE_MS = 5000;
+const DEMO_HINT_ACTIVE_MS = 3000;
 
 function beginCustomDrag(node, payload) {
   customDragInProgress = true;
@@ -965,7 +966,7 @@ function makeDemoRuntime() {
     blocks: { available: new Set(), allocated: new Map() },
     time: { month: 1, progress: 0 },
     nextBlockSerial: 0,
-    hint: { lastInteractionAt: Date.now(), lastHintAt: 0, timerId: null },
+    hint: { timerId: null },
     crateCompletionState: Object.assign(new Map(), { initialized: false })
   };
 }
@@ -1371,25 +1372,23 @@ function runDemoDragHint(runtime) {
     targetNode.classList.add('demo-hint-target');
   }
 
-  window.setTimeout(() => {
+  runtime.hint.timerId = window.setTimeout(() => {
     blockNode.classList.remove('demo-hint-block');
     if (targetNode) targetNode.classList.remove('demo-hint-target');
-  }, 1800);
+    runtime.hint.timerId = null;
+    scheduleDemoDragHint(runtime, DEMO_HINT_IDLE_MS);
+  }, DEMO_HINT_ACTIVE_MS);
 
-  runtime.hint.lastHintAt = Date.now();
   return true;
 }
 
-function scheduleDemoDragHint(runtime) {
+function scheduleDemoDragHint(runtime, delayMs = DEMO_HINT_IDLE_MS) {
   clearDemoHintTimer(runtime);
   if (!runtime?.blocks?.available?.size) return;
-  const anchor = Math.max(runtime.hint.lastInteractionAt || 0, runtime.hint.lastHintAt || 0);
-  const elapsed = Date.now() - anchor;
-  const delay = Math.max(0, DEMO_HINT_IDLE_MS - elapsed);
   runtime.hint.timerId = window.setTimeout(() => {
     runtime.hint.timerId = null;
-    if (runDemoDragHint(runtime)) scheduleDemoDragHint(runtime);
-  }, delay);
+    runDemoDragHint(runtime);
+  }, delayMs);
 }
 
 function renderDemo() {
@@ -1410,7 +1409,6 @@ function renderDemo() {
     block.draggable = true;
     block.textContent = `$${runtime.monthlyContribution.toLocaleString()}`;
     block.addEventListener('dragstart', (event) => {
-      runtime.hint.lastInteractionAt = Date.now();
       clearDemoHintTimer(runtime);
       event.dataTransfer.setData(DRAG_DEMO_BLOCK_MIME, block.id);
       event.dataTransfer.effectAllowed = 'move';
@@ -1438,7 +1436,6 @@ function renderDemo() {
       if (!runtime.blocks.available.has(blockId) || crate.blocksFilled >= crate.capacity) return;
       crate.blocksFilled += 1;
       runtime.blocks.available.delete(blockId);
-      runtime.hint.lastInteractionAt = Date.now();
       clearDemoHintTimer(runtime);
       render();
     });
