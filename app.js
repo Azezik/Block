@@ -1397,6 +1397,8 @@ function renderDemo() {
   nodes.cashFill.style.width = `${runtime.time.progress}%`;
   nodes.cashPercent.textContent = `${Math.round(runtime.time.progress)}%`;
   nodes.cashStatus.textContent = runtime.blocks.available.size > 0 ? `${runtime.blocks.available.size} Cash Block${runtime.blocks.available.size > 1 ? 's' : ''} Ready` : 'Filling...';
+  const demoInstruction = document.getElementById('demoInstruction');
+  if (demoInstruction) demoInstruction.classList.toggle('hidden', runtime.hint.hasInteracted);
 
   nodes.availableBlocks.innerHTML = '';
   runtime.blocks.available.forEach((blockId) => {
