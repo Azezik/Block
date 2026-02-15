@@ -148,6 +148,12 @@ body.modal-open {
   cursor: grab;
 }
 .block:active { cursor: grabbing; }
+.block.dragging,
+.full-block.dragging,
+body.custom-drag-active .block,
+body.custom-drag-active .full-block {
+  cursor: grabbing;
+}
 
 .crate-grid {
   display: grid;
