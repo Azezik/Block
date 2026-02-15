@@ -1,3 +1,8 @@
+import {
+  applyExistingAmountsToSpreadsheet,
+  runtimeFromSpreadsheet
+} from './portfolioSpreadsheet.js';
+
 export function getCrateValue(crateState, blockValue) {
   const safeBlockValue = Math.max(0, Number(blockValue) || 0);
   const filled = Math.max(0, Number(crateState?.filled) || 0);
@@ -19,6 +24,13 @@ export function getCurrentStackValue(stackInstance, blockValue) {
 }
 
 export function getTotalInvestedValue(portfolio) {
+  if (portfolio?.spreadsheet?.positions && portfolio?.spreadsheet?.template?.investments) {
+    return portfolio.spreadsheet.template.investments.reduce((sum, inv) => {
+      const pos = portfolio.spreadsheet.positions[inv.investmentId];
+      return sum + Math.max(0, Number(pos?.totalInvestedDollars ?? 0));
+    }, 0);
+  }
+
   const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
   if (!Array.isArray(portfolio?.stackCards)) return 0;
   return portfolio.stackCards.reduce((stackSum, stackCard) => (
@@ -28,7 +40,9 @@ export function getTotalInvestedValue(portfolio) {
 
 export function getTotalCashValue(portfolio) {
   const safeBlockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
-  const waitingRoomBlocks = Math.max(0, Number(portfolio?.waitingRoomBlocks) || 0);
+  const waitingRoomBlocks = Math.max(0, Number(
+    portfolio?.spreadsheet?.cash?.waitingRoomBlocks ?? portfolio?.waitingRoomBlocks
+  ) || 0);
   return waitingRoomBlocks * safeBlockValue;
 }
 
@@ -87,21 +101,21 @@ export function getMoneyFlowRates(portfolio) {
   };
 }
 
-function makeStackCardFromTemplate(cratesTemplate = []) {
-  return {
-    cardId: crypto.randomUUID(),
-    crates: cratesTemplate.map((crate) => ({
-      crateId: crate.crateId,
-      name: crate.name,
-      requestedPercent: crate.requestedPercent,
-      slotTarget: crate.slotTarget,
-      filled: 0,
-      overflowFilled: 0
-    }))
-  };
-}
-
 export function computeSuggestedExistingAmounts(portfolio) {
+  if (portfolio?.spreadsheet?.template?.investments) {
+    const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+    return portfolio.spreadsheet.template.investments.map((investment) => {
+      const pos = portfolio.spreadsheet.positions[investment.investmentId] || { fullBlocks: 0, overflowDollars: 0 };
+      const suggestedAmount = (Math.max(0, Number(pos.fullBlocks || 0)) * blockValue) + Math.max(0, Number(pos.overflowDollars || 0));
+      const crate = portfolio.cratesTemplate.find((item) => item.crateId === investment.investmentId);
+      return {
+        crateId: investment.investmentId,
+        suggestedAmount,
+        currentStoredAmount: Math.max(0, Number(crate?.existingAmount || 0))
+      };
+    });
+  }
+
   const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
   const filledByCrateId = new Map();
 
@@ -138,6 +152,40 @@ export function computeExistingAmountDelta(currentAmount, nextAmount) {
 
 export function reconcileExistingAmountsWithPortfolio(portfolio, nextExistingAmountByCrateId) {
   const blockValue = Math.max(0, Number(portfolio?.blockValue) || 0);
+
+  if (portfolio?.spreadsheet) {
+    applyExistingAmountsToSpreadsheet(portfolio.spreadsheet, nextExistingAmountByCrateId);
+    const projected = runtimeFromSpreadsheet(portfolio.spreadsheet, portfolio.stackCards || []);
+    portfolio.stackCards = projected.stackCards;
+    portfolio.waitingRoomBlocks = projected.waitingRoomBlocks;
+    portfolio.cashBalance = projected.cashBalance;
+
+    portfolio.cratesTemplate = (portfolio.cratesTemplate || []).map((crate) => {
+      const pos = portfolio.spreadsheet.positions[crate.crateId] || { fullBlocks: 0, overflowDollars: 0 };
+      return {
+        ...crate,
+        existingAmount: (Math.max(0, Number(pos.fullBlocks || 0)) * blockValue) + Math.max(0, Number(pos.overflowDollars || 0)),
+        startingFilledBlocks: Math.max(0, Number(pos.fullBlocks || 0)),
+        overflowDollars: Math.max(0, Number(pos.overflowDollars || 0))
+      };
+    });
+
+    portfolio.moneyEngine = {
+      blockValue,
+      crates: portfolio.cratesTemplate.map((crate) => ({
+        crateId: crate.crateId,
+        existingAmount: crate.existingAmount,
+        startingFilledBlocks: crate.startingFilledBlocks,
+        overflowDollars: crate.overflowDollars,
+        deltaAmount: computeExistingAmountDelta(0, crate.existingAmount)
+      }))
+    };
+
+    const firstIncompleteCardIndex = portfolio.stackCards.findIndex((card) => card.crates.some((crate) => crate.filled < crate.slotTarget));
+    portfolio.activeCardIndex = firstIncompleteCardIndex >= 0 ? firstIncompleteCardIndex : portfolio.stackCards.length - 1;
+    return;
+  }
+
   const suggestedByCrateId = new Map(computeSuggestedExistingAmounts(portfolio).map((item) => [item.crateId, item.suggestedAmount]));
   const normalizedTargets = (portfolio?.cratesTemplate || []).map((crate) => {
     const targetAmount = Math.max(0, Number(nextExistingAmountByCrateId?.get(crate.crateId) ?? suggestedByCrateId.get(crate.crateId) ?? 0));
@@ -172,34 +220,4 @@ export function reconcileExistingAmountsWithPortfolio(portfolio, nextExistingAmo
       deltaAmount: target.deltaAmount
     }))
   };
-
-  const stackCards = [];
-  normalizedTargets.forEach((target) => {
-    let remainingBlocks = target.startingFilledBlocks;
-    let cardIndex = 0;
-
-    while (remainingBlocks > 0) {
-      if (!stackCards[cardIndex]) {
-        stackCards[cardIndex] = makeStackCardFromTemplate(portfolio.cratesTemplate || []);
-      }
-      const targetCrate = stackCards[cardIndex].crates.find((crate) => crate.crateId === target.crateId);
-      if (!targetCrate) break;
-
-      const capacity = Math.max(0, targetCrate.slotTarget - targetCrate.filled);
-      if (capacity <= 0) {
-        cardIndex += 1;
-        continue;
-      }
-
-      const assigned = Math.min(capacity, remainingBlocks);
-      targetCrate.filled += assigned;
-      remainingBlocks -= assigned;
-      cardIndex += 1;
-    }
-  });
-
-  portfolio.stackCards = stackCards.length ? stackCards : [makeStackCardFromTemplate(portfolio.cratesTemplate || [])];
-
-  const firstIncompleteCardIndex = portfolio.stackCards.findIndex((card) => card.crates.some((crate) => crate.filled < crate.slotTarget));
-  portfolio.activeCardIndex = firstIncompleteCardIndex >= 0 ? firstIncompleteCardIndex : portfolio.stackCards.length - 1;
 }
