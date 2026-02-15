@@ -50,6 +50,7 @@ const state = {
   customRuntimes: [],
   selectedCustomStackId: null,
   activeSettings: false,
+  settingsDraftStackId: null,
   deleteModalOpen: false,
   survey: { open: false, mode: 'create', step: 1, editingId: null, values: getEmptySurveyValues() }
 };
@@ -1606,6 +1607,7 @@ function render() {
   const selected = getSelectedCustomRuntime();
   if (!selected) {
     state.deleteModalOpen = false;
+    state.settingsDraftStackId = null;
     nodes.deletePortfolioModal.classList.add('hidden');
     nodes.customStackWorkspace.classList.add('hidden');
     nodes.portfolioSettingsView.classList.add('hidden');
@@ -1618,9 +1620,13 @@ function render() {
   if (state.activeSettings) {
     nodes.customStackWorkspace.classList.add('hidden');
     nodes.portfolioSettingsView.classList.remove('hidden');
-    const suggestedExistingAmountsByCrateId = new Map(computeSuggestedExistingAmounts(selected).map((item) => [item.crateId, item.suggestedAmount]));
-    portfolioSettingsUI.load(selected, getQuickProgressReport(selected), suggestedExistingAmountsByCrateId);
+    if (state.settingsDraftStackId !== selected.stackId) {
+      const suggestedExistingAmountsByCrateId = new Map(computeSuggestedExistingAmounts(selected).map((item) => [item.crateId, item.suggestedAmount]));
+      portfolioSettingsUI.load(selected, getQuickProgressReport(selected), suggestedExistingAmountsByCrateId);
+      state.settingsDraftStackId = selected.stackId;
+    }
   } else {
+    state.settingsDraftStackId = null;
     nodes.portfolioSettingsView.classList.add('hidden');
     nodes.customStackWorkspace.classList.remove('hidden');
     nodes.customCashTitle.textContent = `${selected.stackName} Waiting Room`;
