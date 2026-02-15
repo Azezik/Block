@@ -60,6 +60,7 @@ const state = {
 const nodes = {
   tabDemo: document.getElementById('tabDemo'),
   tabMyStacks: document.getElementById('tabMyStacks'),
+  landingStory: document.getElementById('landingStory'),
   demoView: document.getElementById('demoView'),
   myStacksView: document.getElementById('myStacksView'),
   monthIndicator: document.getElementById('monthIndicator'),
@@ -1787,6 +1788,7 @@ function setTab(tab) {
   state.activeTab = tab;
   nodes.tabDemo.classList.toggle('is-active', tab === 'demo');
   nodes.tabMyStacks.classList.toggle('is-active', tab === 'my-stacks');
+  nodes.landingStory.classList.toggle('hidden', tab !== 'demo');
   nodes.demoView.classList.toggle('hidden', tab !== 'demo');
   nodes.myStacksView.classList.toggle('hidden', tab !== 'my-stacks');
 }
