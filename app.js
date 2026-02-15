@@ -2,6 +2,7 @@ import { initLandingScrollStory } from './landing/landingScrollStory.js';
 import { computeCrateLayout } from './crateLayoutEngine.js';
 import { createStackSelector } from './stackSelector.js';
 import { createStackCarousel } from './stackCarousel.js';
+import { renderStackDots } from './stackDotsIndicator.js';
 import { createPortfolioSettings } from './portfolioSettings.js';
 import {
   computeSuggestedExistingAmounts,
@@ -94,6 +95,7 @@ const nodes = {
   stackPrevBtn: document.getElementById('stackPrevBtn'),
   stackNextBtn: document.getElementById('stackNextBtn'),
   stackCardMeta: document.getElementById('stackCardMeta'),
+  stackDotsIndicator: document.getElementById('stackDotsIndicator'),
   createStackBtn: document.getElementById('createStackBtn'),
   editStackBtn: document.getElementById('editStackBtn'),
   surveyModal: document.getElementById('surveyModal'),
@@ -1264,6 +1266,19 @@ const Renderer = {
     nodes.customCashBalance.textContent = `$${portfolio.cashBalance.toFixed(2)}`;
     nodes.customCompletedStacks.textContent = `${portfolio.completedStacks}`;
     nodes.stackCardMeta.textContent = `Stack ${cardIndex + 1}`;
+
+    renderStackDots({
+      containerNode: nodes.stackDotsIndicator,
+      stacks: portfolio.stackCards,
+      currentStackId: card.cardId,
+      isStackComplete: (stackCard) => isStackCardFull(stackCard, portfolio.blockValue),
+      onSelectStack: (stackId) => {
+        const selectedIndex = portfolio.stackCards.findIndex((stackCard) => stackCard.cardId === stackId);
+        if (selectedIndex < 0 || selectedIndex === portfolio.activeCardIndex) return;
+        portfolio.activeCardIndex = selectedIndex;
+        render();
+      }
+    });
 
     Renderer.renderUnallocatedBlocks(portfolio, editable);
     Renderer.renderCrates(card.crates, portfolio, editable);
